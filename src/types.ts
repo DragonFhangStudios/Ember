@@ -6,7 +6,7 @@ export enum DragonStage {
   ELDER = 'Elder'
 }
 
-export type QuestType = 'routine' | 'medication' | 'focus' | 'symptom' | 'custom';
+export type QuestType = 'routine' | 'medication' | 'focus' | 'symptom' | 'custom' | string;
 
 export interface Quest {
   id: string;
@@ -17,6 +17,8 @@ export interface Quest {
   points: number;
   isDaily: boolean;
   isCustom?: boolean;
+  progress: number;
+  target: number;
 }
 
 export interface SymptomLog {
@@ -42,6 +44,13 @@ export interface Badge {
   unlockedAt?: string;
 }
 
+export interface CustomQuestType {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+}
+
 export interface UserState {
   dragonName: string;
   stage: DragonStage;
@@ -61,4 +70,7 @@ export interface UserState {
   badges: Badge[];
   petCount: number;
   lastPetAt?: string;
+  customQuestTypes: CustomQuestType[];
+  currentStreak: number;
+  bestStreak: number;
 }

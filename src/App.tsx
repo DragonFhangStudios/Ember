@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, TrendingUp, Trophy, Plus } from 'lucide-react';
-import { UserState, DragonStage, Quest, CosmeticItem, Badge } from './types';
+import { UserState, DragonStage, Quest, CosmeticItem, Badge, CustomQuestType } from './types';
 import { INITIAL_QUESTS, BADGES, COSMETICS } from './constants';
 import { DragonAvatar } from './components/DragonAvatar';
 import { StatsHeader } from './components/StatsHeader';
@@ -29,24 +29,52 @@ export default function App() {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved) as UserState;
+      if (!parsed.customQuestTypes) parsed.customQuestTypes = [];
+      if (parsed.currentStreak === undefined) parsed.currentStreak = 0;
+      if (parsed.bestStreak === undefined) parsed.bestStreak = 0;
       
+      const initializedQuests = parsed.quests.map(q => ({
+        ...q,
+        progress: q.progress ?? (q.completed ? (q.target ?? 1) : 0),
+        target: q.target ?? 1,
+      }));
+
       // Check for daily reset
       const today = new Date().toDateString();
       if (parsed.lastLogin !== today) {
-        const resetQuests = parsed.quests.map(q => q.isDaily ? { ...q, completed: false } : q);
-        const anyCompletedYesterday = parsed.quests.some(q => q.completed);
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toDateString();
+        
+        const allCompletedYesterday = initializedQuests.every(q => q.completed);
+        let newStreak = parsed.currentStreak;
+
+        if (parsed.lastLogin === yesterdayStr) {
+          if (allCompletedYesterday) {
+            newStreak += 1;
+          } else {
+            newStreak = 0;
+          }
+        } else {
+          // Missed more than one day
+          newStreak = 0;
+        }
+
+        const resetQuests = initializedQuests.map(q => q.isDaily ? { ...q, completed: false, progress: 0 } : q);
         
         const newState = {
           ...parsed,
           quests: resetQuests,
           lastLogin: today,
-          isNapping: !anyCompletedYesterday,
+          isNapping: !allCompletedYesterday,
           energy: Math.max(0, parsed.energy - 10),
+          currentStreak: newStreak,
+          bestStreak: Math.max(parsed.bestStreak, newStreak),
         };
         setState(newState);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
       } else {
-        setState(parsed);
+        setState({ ...parsed, quests: initializedQuests });
       }
     } else {
       const initialState: UserState = {
@@ -63,6 +91,9 @@ export default function App() {
         equipped: {},
         badges: BADGES,
         petCount: 0,
+        customQuestTypes: [],
+        currentStreak: 0,
+        bestStreak: 0,
       };
       setState(initialState);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
@@ -84,6 +115,8 @@ export default function App() {
       let unlocked = false;
       if (badge.id === 'badge_hatch' && currentState.stage !== DragonStage.EGG) unlocked = true;
       if (badge.id === 'badge_pet_10' && currentState.petCount >= 10) unlocked = true;
+      if (badge.id === 'badge_streak_3' && currentState.currentStreak >= 3) unlocked = true;
+      if (badge.id === 'badge_streak_7' && currentState.currentStreak >= 7) unlocked = true;
       if (badge.id === 'badge_focus_5') {
         const focusQuestsDone = currentState.quests.filter(q => q.type === 'focus' && q.completed).length;
         // This is tricky because we reset daily. We might need a totalFocusCount in state.
@@ -102,20 +135,28 @@ export default function App() {
     }
   };
 
-  const handleToggleQuest = (id: string) => {
+  const handleUpdateQuestProgress = (id: string, increment: number = 1) => {
     if (!state) return;
     const quest = state.quests.find(q => q.id === id);
     if (!quest || quest.completed) return;
 
-    const newQuests = state.quests.map(q => q.id === id ? { ...q, completed: true } : q);
-    let energyGain = quest.points;
+    const newProgress = Math.min(quest.target, quest.progress + increment);
+    const isNowCompleted = newProgress === quest.target;
+    
+    const pointsPerStep = quest.points / quest.target;
+    const energyGain = pointsPerStep * increment;
+    
     let scaleGain = 0;
-    let growthGain = 2;
+    let growthGain = (2 / quest.target) * increment;
 
-    if (quest.type === 'medication') {
+    if (quest.type === 'medication' && isNowCompleted) {
       scaleGain = 10;
       growthGain = 5;
     }
+
+    const newQuests = state.quests.map(q => 
+      q.id === id ? { ...q, progress: newProgress, completed: isNowCompleted } : q
+    );
 
     const newGrowth = state.growthProgress + growthGain;
     let newStage = state.stage;
@@ -127,7 +168,7 @@ export default function App() {
     setState({
       ...state,
       quests: newQuests,
-      energy: state.energy + energyGain,
+      energy: Math.round(state.energy + energyGain),
       goldenScales: state.goldenScales + scaleGain,
       growthProgress: Math.min(100, newGrowth),
       stage: newStage,
@@ -140,6 +181,14 @@ export default function App() {
     setState({
       ...state,
       quests: [...state.quests, quest]
+    });
+  };
+
+  const handleAddCustomType = (type: CustomQuestType) => {
+    if (!state) return;
+    setState({
+      ...state,
+      customQuestTypes: [...state.customQuestTypes, type]
     });
   };
 
@@ -194,7 +243,7 @@ export default function App() {
   const handleFocusComplete = (points: number) => {
     if (!state) return;
     const newQuests = state.quests.map(q => 
-      q.type === 'focus' ? { ...q, completed: true } : q
+      q.type === 'focus' ? { ...q, progress: q.target, completed: true } : q
     );
 
     setState({
@@ -214,7 +263,7 @@ export default function App() {
       mood,
     };
     const newQuests = state.quests.map(q => 
-      q.type === 'symptom' ? { ...q, completed: true } : q
+      q.type === 'symptom' ? { ...q, progress: q.target, completed: true } : q
     );
 
     setState({
@@ -311,7 +360,8 @@ export default function App() {
                 <QuestItem 
                   key={quest.id} 
                   quest={quest} 
-                  onToggle={handleToggleQuest} 
+                  onToggle={handleUpdateQuestProgress} 
+                  customQuestTypes={state.customQuestTypes}
                 />
               ))}
             </motion.div>
@@ -368,7 +418,12 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative z-10 w-full max-w-md"
             >
-              <CustomQuestForm onAdd={handleAddCustomQuest} onClose={() => setShowCustomQuest(false)} />
+              <CustomQuestForm 
+                onAdd={handleAddCustomQuest} 
+                onClose={() => setShowCustomQuest(false)} 
+                customQuestTypes={state.customQuestTypes}
+                onAddType={handleAddCustomType}
+              />
             </motion.div>
           </div>
         )}

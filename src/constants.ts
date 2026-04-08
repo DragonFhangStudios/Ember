@@ -9,6 +9,8 @@ export const INITIAL_QUESTS: Quest[] = [
     completed: false,
     points: 10,
     isDaily: true,
+    progress: 0,
+    target: 1,
   },
   {
     id: 'q2',
@@ -18,6 +20,8 @@ export const INITIAL_QUESTS: Quest[] = [
     completed: false,
     points: 25,
     isDaily: true,
+    progress: 0,
+    target: 1,
   },
   {
     id: 'q3',
@@ -27,6 +31,8 @@ export const INITIAL_QUESTS: Quest[] = [
     completed: false,
     points: 15,
     isDaily: true,
+    progress: 0,
+    target: 1,
   },
   {
     id: 'q4',
@@ -36,15 +42,19 @@ export const INITIAL_QUESTS: Quest[] = [
     completed: false,
     points: 5,
     isDaily: true,
+    progress: 0,
+    target: 1,
   },
   {
     id: 'q5',
-    title: 'Tidy Space',
-    description: 'Spend 5 minutes tidying one area of your room.',
+    title: 'Hydration Goal',
+    description: 'Drink 4 glasses of water throughout the day.',
     type: 'routine',
     completed: false,
-    points: 10,
+    points: 20,
     isDaily: true,
+    progress: 0,
+    target: 4,
   }
 ];
 
@@ -58,7 +68,8 @@ export const COSMETICS: CosmeticItem[] = [
 
 export const BADGES: Badge[] = [
   { id: 'badge_hatch', name: 'First Hatch', description: 'Your dragon egg has hatched!', icon: '🥚' },
-  { id: 'badge_streak_7', name: 'Week Warrior', description: '7-day streak of logging your health routine.', icon: '🔥' },
+  { id: 'badge_streak_3', name: 'Consistent Companion', description: 'Complete all daily quests for 3 days in a row.', icon: '✨' },
+  { id: 'badge_streak_7', name: 'Week Warrior', description: 'Complete all daily quests for 7 days in a row.', icon: '🔥' },
   { id: 'badge_pet_10', name: 'Dragon Bonder', description: 'Pet your dragon 10 times.', icon: '❤️' },
   { id: 'badge_focus_5', name: 'Zen Master', description: 'Complete 5 focus quests.', icon: '🧘' },
 ];
