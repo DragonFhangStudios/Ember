@@ -49,8 +49,8 @@ export function QuestItem({ quest, onToggle, customQuestTypes = [] }: QuestItemP
       className={cn(
         "group flex items-center gap-4 p-4 rounded-2xl border transition-all cursor-pointer",
         quest.completed 
-          ? "bg-white/50 border-transparent opacity-60" 
-          : "bg-white border-dragon-gold/10 shadow-sm hover:shadow-md hover:border-dragon-gold/30"
+          ? "bg-[var(--card-bg)]/50 border-transparent opacity-60" 
+          : "bg-[var(--card-bg)] border-[var(--border-color)] shadow-sm hover:shadow-md hover:border-dragon-gold/30"
       )}
     >
       <div className={cn("p-3 rounded-xl transition-colors", colorClass)}>
@@ -59,19 +59,19 @@ export function QuestItem({ quest, onToggle, customQuestTypes = [] }: QuestItemP
 
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          <h3 className={cn("font-bold text-dragon-ink", quest.completed && "line-through")}>
+          <h3 className={cn("font-bold text-[var(--text-primary)]", quest.completed && "line-through")}>
             {quest.title}
           </h3>
           {isMultiStep && !quest.completed && (
-            <span className="text-[10px] font-bold bg-dragon-warm px-1.5 py-0.5 rounded text-dragon-muted">
+            <span className="text-[10px] font-bold bg-dragon-warm/20 px-1.5 py-0.5 rounded text-[var(--text-secondary)]">
               {quest.progress}/{quest.target}
             </span>
           )}
         </div>
-        <p className="text-xs text-dragon-muted">{quest.description}</p>
+        <p className="text-xs text-[var(--text-secondary)]">{quest.description}</p>
         
         {isMultiStep && !quest.completed && (
-          <div className="mt-2 w-full bg-dragon-warm h-1 rounded-full overflow-hidden">
+          <div className="mt-2 w-full bg-dragon-warm/20 h-1 rounded-full overflow-hidden">
             <motion.div 
               initial={{ width: 0 }}
               animate={{ width: `${progressPercent}%` }}

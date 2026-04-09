@@ -78,31 +78,31 @@ export const DRAGON_STAGES_DATA = {
   [DragonStage.EGG]: {
     minProgress: 0,
     maxProgress: 20,
-    description: 'A glowing egg, warm to the touch.',
-    image: 'https://picsum.photos/seed/dragon-egg/400/400'
+    description: "A mysterious egg pulsing with a faint, warm light. It needs daily care and incubation to hatch.",
+    image: "https://picsum.photos/seed/dragon-egg/400/400"
   },
   [DragonStage.HATCHLING]: {
     minProgress: 21,
     maxProgress: 40,
-    description: 'A tiny, curious hatchling with soft scales.',
-    image: 'https://picsum.photos/seed/dragon-hatchling/400/400'
+    description: "Tiny, big eyes, wobbles when it walks. Fits on a single UI card. Ember glows when you stay hydrated!",
+    image: "https://picsum.photos/seed/dragon-hatchling/400/400"
   },
-  [DragonStage.TEEN]: {
+  [DragonStage.FLEDGLING]: {
     minProgress: 41,
     maxProgress: 65,
-    description: 'A playful teen dragon, full of energy.',
-    image: 'https://picsum.photos/seed/dragon-teen/400/400'
+    description: "Grows small nubs for horns and wings. Ember is starting to ask questions about the world.",
+    image: "https://picsum.photos/seed/dragon-teen/400/400"
   },
-  [DragonStage.ADULT]: {
+  [DragonStage.DRAKE]: {
     minProgress: 66,
     maxProgress: 90,
-    description: 'A majestic adult dragon, wise and strong.',
-    image: 'https://picsum.photos/seed/dragon-adult/400/400'
+    description: "Lean and athletic. Wings are functional. Ember can now go on scavenging runs while you focus.",
+    image: "https://picsum.photos/seed/dragon-adult/400/400"
   },
-  [DragonStage.ELDER]: {
+  [DragonStage.ANCIENT]: {
     minProgress: 91,
     maxProgress: 100,
-    description: 'A legendary elder dragon, guardian of wellness.',
-    image: 'https://picsum.photos/seed/dragon-elder/400/400'
+    description: "Majestic, glowing scales and ornate horns. Ember is now a permanent guardian of your health legacy.",
+    image: "https://picsum.photos/seed/dragon-elder/400/400"
   }
 };

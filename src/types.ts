@@ -1,9 +1,9 @@
 export enum DragonStage {
   EGG = 'Egg',
   HATCHLING = 'Hatchling',
-  TEEN = 'Teen',
-  ADULT = 'Adult',
-  ELDER = 'Elder'
+  FLEDGLING = 'Fledgling',
+  DRAKE = 'Drake',
+  ANCIENT = 'Ancient'
 }
 
 export type QuestType = 'routine' | 'medication' | 'focus' | 'symptom' | 'custom' | string;
@@ -70,7 +70,10 @@ export interface UserState {
   badges: Badge[];
   petCount: number;
   lastPetAt?: string;
+  lastIncubateAt?: string;
   customQuestTypes: CustomQuestType[];
   currentStreak: number;
   bestStreak: number;
+  themeColor?: string;
+  isDarkMode?: boolean;
 }

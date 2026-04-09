@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, TrendingUp, Trophy, Plus } from 'lucide-react';
+import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, TrendingUp, Trophy, Plus, ChevronDown, Palette } from 'lucide-react';
 import { UserState, DragonStage, Quest, CosmeticItem, Badge, CustomQuestType } from './types';
 import { INITIAL_QUESTS, BADGES, COSMETICS } from './constants';
 import { DragonAvatar } from './components/DragonAvatar';
@@ -14,6 +14,7 @@ import { Insights } from './components/Insights';
 import { Badges } from './components/Badges';
 import { CustomQuestForm } from './components/CustomQuestForm';
 import { BondingActions } from './components/BondingActions';
+import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { cn } from './lib/utils';
 
 const STORAGE_KEY = 'ember_user_state_v2';
@@ -23,6 +24,31 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'focus' | 'checkin' | 'wardrobe' | 'insights' | 'badges'>('dashboard');
   const [isFocusActive, setIsFocusActive] = useState(false);
   const [showCustomQuest, setShowCustomQuest] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isPetted, setIsPetted] = useState(false);
+  const [petFlavorText, setPetFlavorText] = useState<string | null>(null);
+  const [isLevelingUp, setIsLevelingUp] = useState(false);
+  const prevStageRef = useRef<DragonStage | null>(null);
+
+  // Apply dark mode class
+  useEffect(() => {
+    if (state?.isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [state?.isDarkMode]);
+
+  // Detect stage changes for level up animation
+  useEffect(() => {
+    if (state && prevStageRef.current && state.stage !== prevStageRef.current) {
+      setIsLevelingUp(true);
+      setTimeout(() => setIsLevelingUp(false), 5000);
+    }
+    if (state) {
+      prevStageRef.current = state.stage;
+    }
+  }, [state?.stage]);
 
   // Load state from localStorage
   useEffect(() => {
@@ -60,6 +86,16 @@ export default function App() {
           newStreak = 0;
         }
 
+        // Daily Ritual Check: If missed petting or incubating yesterday, reset growth
+        const lastPet = parsed.lastPetAt ? new Date(parsed.lastPetAt).toDateString() : '';
+        const lastIncubate = parsed.lastIncubateAt ? new Date(parsed.lastIncubateAt).toDateString() : '';
+        
+        let newGrowth = parsed.growthProgress;
+        if (lastPet !== yesterdayStr || lastIncubate !== yesterdayStr) {
+          // Reset growth if ritual was missed
+          newGrowth = 0;
+        }
+
         const resetQuests = initializedQuests.map(q => q.isDaily ? { ...q, completed: false, progress: 0 } : q);
         
         const newState = {
@@ -70,6 +106,8 @@ export default function App() {
           energy: Math.max(0, parsed.energy - 10),
           currentStreak: newStreak,
           bestStreak: Math.max(parsed.bestStreak, newStreak),
+          growthProgress: newGrowth,
+          stage: DragonStage.EGG, // Softlock to Egg
         };
         setState(newState);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
@@ -160,9 +198,9 @@ export default function App() {
 
     const newGrowth = state.growthProgress + growthGain;
     let newStage = state.stage;
-    if (newGrowth >= 91) newStage = DragonStage.ELDER;
-    else if (newGrowth >= 66) newStage = DragonStage.ADULT;
-    else if (newGrowth >= 41) newStage = DragonStage.TEEN;
+    if (newGrowth >= 91) newStage = DragonStage.ANCIENT;
+    else if (newGrowth >= 66) newStage = DragonStage.DRAKE;
+    else if (newGrowth >= 41) newStage = DragonStage.FLEDGLING;
     else if (newGrowth >= 21) newStage = DragonStage.HATCHLING;
 
     setState({
@@ -213,29 +251,127 @@ export default function App() {
     });
   };
 
+  const handleUpdateTheme = (color: string) => {
+    if (!state) return;
+    setState({
+      ...state,
+      themeColor: color
+    });
+  };
+
+  const handleToggleDarkMode = () => {
+    if (!state) return;
+    setState({
+      ...state,
+      isDarkMode: !state.isDarkMode
+    });
+  };
+
+  const handleResetProgress = () => {
+    const initialState: UserState = {
+      dragonName: 'Ember',
+      stage: DragonStage.EGG,
+      energy: 50,
+      goldenScales: 0,
+      growthProgress: 0,
+      lastLogin: new Date().toDateString(),
+      isNapping: false,
+      quests: INITIAL_QUESTS,
+      symptomLogs: [],
+      inventory: [],
+      equipped: {},
+      badges: BADGES,
+      petCount: 0,
+      customQuestTypes: [],
+      currentStreak: 0,
+      bestStreak: 0,
+      isDarkMode: state?.isDarkMode,
+      themeColor: state?.themeColor
+    };
+    
+    setState(initialState);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+    setActiveTab('dashboard');
+    setShowResetConfirm(false);
+  };
+
   const handlePet = () => {
     if (!state) return;
-    const now = new Date().getTime();
-    const lastPet = state.lastPetAt ? new Date(state.lastPetAt).getTime() : 0;
+    const today = new Date().toDateString();
+    const lastPet = state.lastPetAt ? new Date(state.lastPetAt).toDateString() : '';
     
-    // Cooldown of 5 seconds for petting
-    if (now - lastPet < 5000) return;
+    if (lastPet === today) {
+      setPetFlavorText("Ember is already clean and hydrated for today.");
+      setTimeout(() => setPetFlavorText(null), 3000);
+      return;
+    }
+
+    setIsPetted(true);
+    if (state.stage === DragonStage.EGG) {
+      setPetFlavorText("You carefully clean the shell and ensure it's hydrated. Ember pulses warmly.");
+    } else {
+      setPetFlavorText("Ember chirps happily and leans into your touch.");
+    }
+
+    setTimeout(() => {
+      setIsPetted(false);
+      setTimeout(() => setPetFlavorText(null), 2000);
+    }, 1000);
 
     setState({
       ...state,
       petCount: state.petCount + 1,
       lastPetAt: new Date().toISOString(),
-      energy: state.energy + 1,
+      energy: state.energy + 5,
+      growthProgress: Math.min(100, state.growthProgress + 2),
       isNapping: false
     });
   };
 
   const handleFeed = () => {
-    if (!state || state.energy < 5) return;
+    if (!state) return;
+    const today = new Date().toDateString();
+    const lastIncubate = state.lastIncubateAt ? new Date(state.lastIncubateAt).toDateString() : '';
+
+    if (state.stage === DragonStage.EGG) {
+      if (lastIncubate === today) {
+        setPetFlavorText("The egg has already been incubated today. It's glowing steadily.");
+        setTimeout(() => setPetFlavorText(null), 3000);
+        return;
+      }
+
+      setPetFlavorText("You provide a spark of warmth. The egg glows with life!");
+      setTimeout(() => setPetFlavorText(null), 3000);
+
+      setState({
+        ...state,
+        lastIncubateAt: new Date().toISOString(),
+        energy: state.energy + 10,
+        growthProgress: Math.min(100, state.growthProgress + 5),
+        isNapping: false
+      });
+      return;
+    }
+
+    if (state.energy < 5) return;
+    const newGrowth = state.growthProgress + 0.5;
+    let newStage = state.stage;
+    
+    // Softlock: Don't go past Egg for now
+    if (state.stage === DragonStage.EGG) {
+      newStage = DragonStage.EGG;
+    } else {
+      if (newGrowth >= 91) newStage = DragonStage.ANCIENT;
+      else if (newGrowth >= 66) newStage = DragonStage.DRAKE;
+      else if (newGrowth >= 41) newStage = DragonStage.FLEDGLING;
+      else if (newGrowth >= 21) newStage = DragonStage.HATCHLING;
+    }
+
     setState({
       ...state,
       energy: state.energy + 10,
-      growthProgress: Math.min(100, state.growthProgress + 0.5),
+      growthProgress: Math.min(100, newGrowth),
+      stage: newStage,
       isNapping: false
     });
   };
@@ -278,17 +414,41 @@ export default function App() {
 
   if (!state) return null;
 
+  const BACKGROUND_COLORS = [
+    { name: 'Warm White', value: '#F5F5F0' },
+    { name: 'Soft Blue', value: '#EBF5FF' },
+    { name: 'Mint Green', value: '#F0FFF4' },
+    { name: 'Lavender', value: '#F5F3FF' },
+    { name: 'Peach', value: '#FFF5F5' },
+    { name: 'Sunset', value: '#FFF7ED' },
+  ];
+
   return (
-    <div className="min-h-screen bg-dragon-warm pb-24">
-      <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-dragon-gold/10 px-6 py-4">
+    <div className="min-h-screen transition-colors duration-700 pb-24 bg-app-custom" style={{ backgroundColor: state.themeColor }}>
+      <header className="bg-[var(--card-bg)]/80 backdrop-blur-md sticky top-0 z-50 border-b border-[var(--border-color)] px-6 py-4 transition-colors">
         <div className="max-w-2xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-dragon-ember rounded-lg flex items-center justify-center">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <h1 className="serif text-2xl font-bold text-dragon-ink">Ember</h1>
+            <h1 className="serif text-2xl font-bold text-[var(--text-primary)]">Ember</h1>
           </div>
           <div className="flex gap-2">
+            <button 
+              onClick={handleToggleDarkMode}
+              className="p-2 rounded-lg text-dragon-muted hover:text-dragon-ink transition-colors"
+              title="Toggle Dark Mode"
+            >
+              {state.isDarkMode ? <Sparkles className="w-6 h-6" /> : <Palette className="w-6 h-6" />}
+            </button>
+            <button 
+              onClick={() => setShowResetConfirm(true)}
+              className="p-2 rounded-lg text-dragon-muted hover:text-red-500 transition-colors"
+              title="Reset Progress"
+            >
+              <Settings className="w-6 h-6" />
+            </button>
+            <div className="h-6 w-px bg-dragon-gold/20 mx-1" />
             <button 
               onClick={() => setActiveTab('insights')}
               className={cn("p-2 rounded-lg transition-colors", activeTab === 'insights' ? "bg-dragon-gold/10 text-dragon-gold" : "text-dragon-muted hover:text-dragon-ink")}
@@ -301,6 +461,28 @@ export default function App() {
             >
               <Trophy className="w-6 h-6" />
             </button>
+            <div className="h-6 w-px bg-dragon-gold/20 mx-1" />
+            <div className="flex gap-1 items-center">
+              <input 
+                type="color" 
+                value={state.themeColor || '#F5F5F0'} 
+                onChange={(e) => handleUpdateTheme(e.target.value)}
+                className="w-6 h-6 rounded-full border-none cursor-pointer bg-transparent"
+                title="Custom Background Color"
+              />
+              {BACKGROUND_COLORS.map((color) => (
+                <button
+                  key={color.value}
+                  onClick={() => handleUpdateTheme(color.value)}
+                  className={cn(
+                    "w-6 h-6 rounded-full border-2 transition-all",
+                    state.themeColor === color.value ? "border-dragon-gold scale-110 shadow-sm" : "border-transparent hover:scale-105"
+                  )}
+                  style={{ backgroundColor: color.value }}
+                  title={color.name}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </header>
@@ -308,7 +490,7 @@ export default function App() {
       <main className="max-w-2xl mx-auto px-6 pt-8">
         <StatsHeader userState={state} />
 
-        <div className="bg-white rounded-3xl p-8 shadow-xl border border-dragon-gold/10 mb-8 relative overflow-hidden">
+        <div className="bg-[var(--card-bg)] rounded-3xl p-8 shadow-xl border border-[var(--border-color)] mb-8 relative overflow-hidden min-h-[75vh] flex flex-col items-center justify-center transition-colors">
           <div className="absolute top-0 right-0 w-32 h-32 bg-dragon-gold/5 rounded-full -mr-16 -mt-16 blur-3xl" />
           <div className="absolute bottom-0 left-0 w-32 h-32 bg-dragon-ember/5 rounded-full -ml-16 -mb-16 blur-3xl" />
           
@@ -316,14 +498,29 @@ export default function App() {
             stage={state.stage} 
             isNapping={state.isNapping} 
             isMeditating={isFocusActive}
+            isPetted={isPetted}
+            isLevelingUp={isLevelingUp}
             equipped={state.equipped}
           />
 
           <BondingActions 
             onPet={handlePet} 
             onFeed={handleFeed} 
-            canPet={!state.lastPetAt || (new Date().getTime() - new Date(state.lastPetAt).getTime() > 5000)} 
+            lastPetAt={state.lastPetAt} 
+            lastIncubateAt={state.lastIncubateAt}
+            stage={state.stage}
           />
+
+          {petFlavorText && (
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="mt-4 text-sm text-dragon-ember font-medium italic"
+            >
+              {petFlavorText}
+            </motion.p>
+          )}
 
           {state.isNapping && (
             <motion.div 
@@ -336,6 +533,17 @@ export default function App() {
               </p>
             </motion.div>
           )}
+
+          {/* Content Peek Gradient */}
+          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[var(--card-bg)] to-transparent pointer-events-none flex items-end justify-center pb-4 transition-colors">
+            <motion.div
+              animate={{ y: [0, 5, 0] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="text-dragon-gold/40"
+            >
+              <ChevronDown className="w-6 h-6" />
+            </motion.div>
+          </div>
         </div>
 
         <AnimatePresence mode="wait">
@@ -348,7 +556,7 @@ export default function App() {
               className="space-y-4"
             >
               <div className="flex justify-between items-center mb-2">
-                <h2 className="serif text-2xl font-bold text-dragon-ink">Daily Quests</h2>
+                <h2 className="serif text-2xl font-bold text-[var(--text-primary)]">Daily Quests</h2>
                 <button 
                   onClick={() => setShowCustomQuest(true)}
                   className="flex items-center gap-1 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
@@ -429,7 +637,13 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-lg border-t border-dragon-gold/10 px-6 py-3 z-50">
+      <ResetConfirmationModal 
+        isOpen={showResetConfirm} 
+        onClose={() => setShowResetConfirm(false)} 
+        onConfirm={handleResetProgress} 
+      />
+
+      <nav className="fixed bottom-0 left-0 right-0 bg-[var(--card-bg)]/80 backdrop-blur-lg border-t border-[var(--border-color)] px-6 py-3 z-50 transition-colors">
         <div className="max-w-2xl mx-auto flex justify-around items-center">
           <NavButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={LayoutDashboard} label="Home" />
           <NavButton active={activeTab === 'focus'} onClick={() => setActiveTab('focus')} icon={Timer} label="Focus" />
@@ -443,7 +657,7 @@ export default function App() {
 
 function NavButton({ active, onClick, icon: Icon, label }: { active: boolean, onClick: () => void, icon: any, label: string }) {
   return (
-    <button onClick={onClick} className={cn("flex flex-col items-center gap-1 transition-all", active ? "text-dragon-ember" : "text-dragon-muted hover:text-dragon-ink")}>
+    <button onClick={onClick} className={cn("flex flex-col items-center gap-1 transition-all", active ? "text-dragon-ember" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}>
       <div className={cn("p-2 rounded-xl transition-all", active ? "bg-dragon-ember/10" : "bg-transparent")}>
         <Icon className="w-6 h-6" />
       </div>

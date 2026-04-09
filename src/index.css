@@ -12,12 +12,63 @@
   --color-dragon-muted: #8E9299;
 }
 
+:root {
+  --bg-app: #F5F5F0;
+  --text-primary: #1A1A1A;
+  --text-secondary: #8E9299;
+  --card-bg: #FFFFFF;
+  --border-color: rgba(212, 175, 55, 0.1);
+}
+
+.dark {
+  --bg-app: #121212;
+  --text-primary: #F5F5F0;
+  --text-secondary: #8E9299;
+  --card-bg: #1E1E1E;
+  --border-color: rgba(212, 175, 55, 0.2);
+}
+
 body {
   font-family: var(--font-sans);
-  background-color: var(--color-dragon-warm);
-  color: var(--color-dragon-ink);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.bg-app-custom {
+  background-color: var(--bg-app);
+}
+
+.text-primary-custom {
+  color: var(--text-primary);
+}
+
+.card-custom {
+  background-color: var(--card-bg);
+  border-color: var(--border-color);
 }
 
 .serif {
   font-family: var(--font-serif);
+}
+
+@keyframes heartbeat {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.animate-heartbeat {
+  animation: heartbeat 0.8s ease-in-out;
+}
+
+.bg-heat-gradient {
+  background: linear-gradient(90deg, #FF4E00, #FF8C00, #FF4E00);
+  background-size: 200% 100%;
+  animation: heat-flicker 2s linear infinite;
+}
+
+@keyframes heat-flicker {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
 }
