@@ -186,6 +186,9 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
             <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
               Category
             </label>
+            <p className="text-[10px] text-dragon-muted -mt-1 mb-2">
+              Categories help you organize. All custom quests earn the same rewards.
+            </p>
             <div className="grid grid-cols-2 gap-2">
               {allTypes.map((t) => {
                 const Icon = (LucideIcons[t.icon as keyof typeof LucideIcons] as any) || Sparkles;
