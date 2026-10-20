@@ -291,6 +291,41 @@ describe('commit semantics', () => {
   });
 });
 
+describe('cross-tab notifications are best-effort', () => {
+  it('a committed update still succeeds when broadcasting fails', async () => {
+    const h = harness();
+    const { store } = await h.open();
+    const post = vi.spyOn(BroadcastChannel.prototype, 'postMessage').mockImplementation(() => {
+      throw new DOMException('BroadcastChannel is closed.', 'InvalidStateError');
+    });
+    try {
+      const result = await store.update(s => ({ ...s, goldenScales: 77 }));
+      expect(post).toHaveBeenCalled();
+      expect(result.changed).toBe(true);
+      expect(result.state.goldenScales).toBe(77);
+      expect((await store.read()).state.goldenScales).toBe(77);
+    } finally {
+      post.mockRestore();
+      store.close();
+    }
+  });
+
+  it('creating the first save still succeeds when broadcasting fails', async () => {
+    const h = harness({ ...createInitialState(NOW), goldenScales: 12 });
+    const post = vi.spyOn(BroadcastChannel.prototype, 'postMessage').mockImplementation(() => {
+      throw new DOMException('BroadcastChannel is closed.', 'InvalidStateError');
+    });
+    try {
+      const { store, initial } = await h.open();
+      expect(post).toHaveBeenCalled();
+      expect(initial.state.goldenScales).toBe(12);
+      store.close();
+    } finally {
+      post.mockRestore();
+    }
+  });
+});
+
 describe('database replacement', () => {
   it('a deleted database notifies this tab, and a reopened store starts again at revision 1', async () => {
     const h = harness();

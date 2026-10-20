@@ -18,6 +18,7 @@ import {
 import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/focusSession';
 import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from './lib/store';
 import { createRevisionGate } from './lib/revisionGate';
+import { parseLegacySave } from './lib/legacySave';
 import { DragonAvatar } from './components/DragonAvatar';
 import { StatsHeader } from './components/StatsHeader';
 import { QuestItem } from './components/QuestItem';
@@ -54,17 +55,11 @@ function getDeviceId(): string {
 
 /**
  * The pre-IndexedDB save: null only when there genuinely is none. Throws when
- * storage can't be read or the data is corrupt, so a failed read is never
- * mistaken for "no save" (see openStore).
+ * storage can't be read, the data is corrupt, or it isn't a recognizable Ember
+ * save, so a failed read is never mistaken for "no save" (see openStore).
  */
 function readLegacySave(): unknown {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved === null) return null;
-  const parsed: unknown = JSON.parse(saved);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('The saved Ember data is not a save object.');
-  }
-  return parsed;
+  return parseLegacySave(localStorage.getItem(STORAGE_KEY));
 }
 
 function newFocusSessionId(): string {

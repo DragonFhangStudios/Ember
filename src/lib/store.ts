@@ -124,6 +124,20 @@ export async function openStore<T>(options: OpenStoreOptions<T>): Promise<{ stor
 
   const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`${CHANNEL}:${options.dbName ?? DB_NAME}`) : null;
 
+  /**
+   * Tells other tabs about a committed change. Best-effort: the save is
+   * already committed, so a notification failure must never surface as a
+   * failed save (other tabs still catch up on focus, visibility, and their
+   * periodic check).
+   */
+  const notifyOtherTabs = (rev: number) => {
+    try {
+      channel?.postMessage({ rev });
+    } catch (error) {
+      console.warn('Ember could not notify other tabs of a saved change', error);
+    }
+  };
+
   /** Runs one readwrite (or readonly) transaction over the save record. */
   function transact(
     mode: IDBTransactionMode,
@@ -205,7 +219,7 @@ export async function openStore<T>(options: OpenStoreOptions<T>): Promise<{ stor
         return { ...stored, state: next, rev: stored.rev + 1 };
       });
       // Committed: only now tell other tabs.
-      if (changed) channel?.postMessage({ rev: record.rev });
+      if (changed) notifyOtherTabs(record.rev);
       return { state: changed ? record.state : options.migrate(record.state), rev: record.rev, changed };
     },
     subscribe(listener) {
@@ -222,6 +236,6 @@ export async function openStore<T>(options: OpenStoreOptions<T>): Promise<{ stor
     },
   };
 
-  if (created) channel?.postMessage({ rev: initialRecord.rev });
+  if (created) notifyOtherTabs(initialRecord.rev);
   return { store, initial: toResult(initialRecord, created) };
 }
