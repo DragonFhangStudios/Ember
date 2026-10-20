@@ -5,19 +5,20 @@ import { cn } from '../lib/utils';
 
 interface SymptomCheckInProps {
   onComplete: (energy: number, mood: number) => void;
+  checkedInToday: boolean;
 }
 
-export function SymptomCheckIn({ onComplete }: SymptomCheckInProps) {
+export function SymptomCheckIn({ onComplete, checkedInToday }: SymptomCheckInProps) {
   const [energy, setEnergy] = useState(3);
   const [mood, setMood] = useState(3);
-  const [submitted, setSubmitted] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const handleSubmit = () => {
     onComplete(energy, mood);
-    setSubmitted(true);
+    setIsEditing(false);
   };
 
-  if (submitted) {
+  if (checkedInToday && !isEditing) {
     return (
       <div className="bg-white rounded-3xl p-8 shadow-xl border border-dragon-gold/10 text-center">
         <div className="bg-rose-50 p-4 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
@@ -27,6 +28,12 @@ export function SymptomCheckIn({ onComplete }: SymptomCheckInProps) {
         <p className="text-sm text-dragon-muted">
           Patterns help you and your doctor. Great job checking in with yourself!
         </p>
+        <button
+          onClick={() => setIsEditing(true)}
+          className="mt-4 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
+        >
+          Update today's check-in
+        </button>
       </div>
     );
   }

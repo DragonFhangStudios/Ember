@@ -1,37 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { Play, Pause, RotateCcw, Timer, Trophy } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { FocusTimerState } from '../lib/focusTimer';
 
 interface FocusTimerProps {
-  onComplete: (points: number) => void;
-  isActive: boolean;
-  setIsActive: (active: boolean) => void;
+  timer: FocusTimerState;
+  rewardsLeft: number;
+  onStart: () => void;
+  onPause: () => void;
+  onReset: () => void;
 }
 
-export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProps) {
-  const [timeLeft, setTimeLeft] = useState(10 * 60); // 10 minutes
-  const [isFinished, setIsFinished] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    if (isActive && timeLeft > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (timeLeft === 0) {
-      setIsActive(false);
-      setIsFinished(true);
-      onComplete(15);
-      if (timerRef.current) clearInterval(timerRef.current);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isActive, timeLeft, setIsActive, onComplete]);
+export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: FocusTimerProps) {
+  const isActive = timer.status === 'running';
+  const isFinished = timer.status === 'finished';
+  const timeLeft = Math.ceil(timer.remainingMs / 1000);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -39,13 +22,7 @@ export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProp
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const resetTimer = () => {
-    setTimeLeft(10 * 60);
-    setIsActive(false);
-    setIsFinished(false);
-  };
-
-  const progress = ((10 * 60 - timeLeft) / (10 * 60)) * 100;
+  const progress = ((timer.durationMs - timer.remainingMs) / timer.durationMs) * 100;
 
   return (
     <div className="bg-white rounded-3xl p-8 shadow-xl border border-dragon-gold/10 flex flex-col items-center text-center">
@@ -88,7 +65,7 @@ export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProp
         {!isFinished ? (
           <>
             <button
-              onClick={() => setIsActive(!isActive)}
+              onClick={isActive ? onPause : onStart}
               className={cn(
                 "w-12 h-12 rounded-full flex items-center justify-center transition-all",
                 isActive 
@@ -99,7 +76,7 @@ export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProp
               {isActive ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-1" />}
             </button>
             <button
-              onClick={resetTimer}
+              onClick={onReset}
               className="w-12 h-12 rounded-full bg-dragon-warm text-dragon-ink flex items-center justify-center hover:bg-dragon-gold/10 transition-all"
             >
               <RotateCcw className="w-6 h-6" />
@@ -116,7 +93,7 @@ export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProp
             </div>
             <p className="font-bold text-dragon-ink">Quest Complete!</p>
             <button
-              onClick={resetTimer}
+              onClick={onReset}
               className="px-6 py-2 bg-dragon-gold text-white rounded-full font-bold hover:bg-dragon-gold/90 transition-all"
             >
               Start New Quest
@@ -129,6 +106,11 @@ export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProp
         {isActive 
           ? "Ember is meditating with you. Stay focused!" 
           : "Ready to start a focus quest? Ember will meditate by your side."}
+      </p>
+      <p className="mt-2 text-xs text-dragon-muted">
+        {rewardsLeft > 0
+          ? `${rewardsLeft} growth-earning ${rewardsLeft === 1 ? 'session' : 'sessions'} left today`
+          : "Today's focus growth is complete. Sessions still count toward your quest!"}
       </p>
     </div>
   );

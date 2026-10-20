@@ -51,7 +51,16 @@ export interface CustomQuestType {
   color: string;
 }
 
+/** Per-calendar-day reward bookkeeping. Resets when the day rolls over. */
+export interface DailyRewards {
+  date: string; // Date.toDateString() of the day these counters belong to
+  feeds: number; // rewarded feeds (hatched dragon only)
+  focusRewards: number; // focus sessions that granted energy/growth
+  checkInRewarded: boolean;
+}
+
 export interface UserState {
+  version?: number;
   dragonName: string;
   stage: DragonStage;
   energy: number;
@@ -76,4 +85,5 @@ export interface UserState {
   bestStreak: number;
   themeColor?: string;
   isDarkMode?: boolean;
+  daily: DailyRewards;
 }
