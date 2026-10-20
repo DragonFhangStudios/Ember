@@ -68,8 +68,8 @@ export const COSMETICS: CosmeticItem[] = [
 
 export const BADGES: Badge[] = [
   { id: 'badge_hatch', name: 'First Hatch', description: 'Your dragon egg has hatched!', icon: '🥚' },
-  { id: 'badge_streak_3', name: 'Consistent Companion', description: 'Complete all daily quests for 3 days in a row.', icon: '✨' },
-  { id: 'badge_streak_7', name: 'Week Warrior', description: 'Complete all daily quests for 7 days in a row.', icon: '🔥' },
+  { id: 'badge_streak_3', name: 'Consistent Companion', description: 'Do one meaningful activity (a quest, focus session, or check-in) 3 days in a row.', icon: '✨' },
+  { id: 'badge_streak_7', name: 'Week Warrior', description: 'Do one meaningful activity (a quest, focus session, or check-in) 7 days in a row.', icon: '🔥' },
   { id: 'badge_pet_10', name: 'Dragon Bonder', description: 'Pet your dragon 10 times.', icon: '❤️' },
   { id: 'badge_focus_5', name: 'Zen Master', description: 'Complete 5 focus quests.', icon: '🧘' },
 ];
