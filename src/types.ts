@@ -57,6 +57,7 @@ export interface DailyRewards {
   feeds: number; // rewarded feeds (hatched dragon only)
   focusRewards: number; // focus sessions that granted energy/growth
   checkInRewarded: boolean;
+  meaningfulActivity: boolean; // today already counted toward the streak
 }
 
 export interface UserState {
@@ -83,6 +84,7 @@ export interface UserState {
   customQuestTypes: CustomQuestType[];
   currentStreak: number;
   bestStreak: number;
+  lastActiveDay?: string; // Date.toDateString() of the last day that counted toward the streak
   themeColor?: string;
   isDarkMode?: boolean;
   daily: DailyRewards;

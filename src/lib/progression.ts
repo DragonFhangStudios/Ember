@@ -4,8 +4,10 @@ import { INITIAL_QUESTS, BADGES } from '../constants';
 // Ember's progression rules, kept pure so they can be unit tested.
 // Philosophy: growth is permanent. Missing days may break a streak or make
 // Ember nap, but never takes away growth, stages, or earned rewards.
+// A day counts toward the streak with one meaningful activity: completing a
+// quest, finishing a focus session, or logging a check-in (not petting/feeding).
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const MAX_GROWTH = 100;
 
 // Minimum growth required for each stage, highest first.
@@ -62,7 +64,7 @@ export function stageThreshold(stage: DragonStage): number {
 }
 
 export function freshDaily(date: string): DailyRewards {
-  return { date, feeds: 0, focusRewards: 0, checkInRewarded: false };
+  return { date, feeds: 0, focusRewards: 0, checkInRewarded: false, meaningfulActivity: false };
 }
 
 /** Today's reward counters, treating counters from another day as empty. */
@@ -85,6 +87,48 @@ export function grantRewards(
     stage: stageForGrowth(growthProgress),
     isNapping: false,
   };
+}
+
+/**
+ * Counts today toward the streak. Only the first meaningful activity of a day
+ * changes the streak; later ones are no-ops. Continues the streak when the
+ * last active day was yesterday, otherwise starts a fresh one.
+ */
+export function creditMeaningfulActivity(state: UserState, now: Date): { state: UserState; message?: string } {
+  const daily = dailyFor(state, now);
+  if (daily.meaningfulActivity) return { state };
+
+  const today = dayKey(now);
+  const gap = state.lastActiveDay ? daysBetween(state.lastActiveDay, now) : Infinity;
+  // Clock moved backwards past the last active day: don't touch the streak.
+  if (gap < 0) return { state };
+
+  const continues = gap === 1;
+  const currentStreak = gap === 0 ? state.currentStreak : continues ? state.currentStreak + 1 : 1;
+  const next: UserState = {
+    ...state,
+    currentStreak,
+    bestStreak: Math.max(state.bestStreak, currentStreak),
+    lastActiveDay: today,
+    daily: { ...daily, meaningfulActivity: true },
+  };
+
+  let message: string | undefined;
+  if (continues && currentStreak > 1) {
+    message = `🔥 ${currentStreak}-day streak! ${state.dragonName} is so proud of you.`;
+  } else if (state.lastActiveDay && gap >= 2) {
+    message = `Welcome back! Today counts, and ${state.dragonName} is happy you're here.`;
+  } else if (gap !== 0) {
+    message = `Today counts! ${state.dragonName} is happy you're here.`;
+  }
+  return { state: next, message };
+}
+
+/** Combines an action's own message with a streak message. */
+function withStreakCredit(result: ActionResult, now: Date): ActionResult {
+  const credited = creditMeaningfulActivity(result.state, now);
+  const message = [credited.message, result.message].filter(Boolean).join(' ') || undefined;
+  return { state: credited.state, message };
 }
 
 export function createInitialState(now: Date): UserState {
@@ -158,7 +202,27 @@ export function migrateState(raw: unknown, now: Date): UserState {
           checkInRewarded: quests.some(q => q.type === 'symptom' && q.completed),
         };
 
-  const currentStreak = num(saved.currentStreak, 0);
+  // Pre-v4 saves counted a streak day only at the next rollover, so a live
+  // streak covered days up to the day before lastLogin. Carry it over, then
+  // credit lastLogin itself if anything meaningful already happened that day.
+  // This can only keep or raise an existing streak.
+  let currentStreak = num(saved.currentStreak, 0);
+  let lastActiveDay = typeof saved.lastActiveDay === 'string' ? saved.lastActiveDay : undefined;
+  if (num(saved.version, 0) < 4) {
+    const lastLoginDate = new Date(lastLogin);
+    if (currentStreak > 0 && !lastActiveDay && !Number.isNaN(lastLoginDate.getTime())) {
+      lastLoginDate.setDate(lastLoginDate.getDate() - 1);
+      lastActiveDay = dayKey(lastLoginDate);
+    }
+    const activeOnLastLogin =
+      quests.some(q => q.isDaily && q.completed) || daily.checkInRewarded || daily.focusRewards > 0;
+    if (activeOnLastLogin && daily.date === lastLogin && !daily.meaningfulActivity) {
+      currentStreak = lastActiveDay && daysBetween(lastActiveDay, new Date(lastLogin)) === 1 ? currentStreak + 1 : 1;
+      lastActiveDay = lastLogin;
+      daily.meaningfulActivity = true;
+    }
+  }
+
   return {
     ...base,
     ...saved,
@@ -172,6 +236,7 @@ export function migrateState(raw: unknown, now: Date): UserState {
     petCount: num(saved.petCount, 0),
     currentStreak,
     bestStreak: Math.max(num(saved.bestStreak, 0), currentStreak),
+    lastActiveDay,
     symptomLogs: Array.isArray(saved.symptomLogs) ? saved.symptomLogs : [],
     inventory: Array.isArray(saved.inventory) ? saved.inventory : [],
     equipped: saved.equipped && typeof saved.equipped === 'object' ? saved.equipped : {},
@@ -195,8 +260,10 @@ export function rollOverDay(state: UserState, now: Date): UserState {
   // Clock moved backwards: don't hand out a fresh day.
   if (daysAway < 0) return state;
 
-  const completedAll = state.quests.every(q => q.completed);
-  const currentStreak = daysAway === 1 && completedAll ? state.currentStreak + 1 : 0;
+  // The streak survives as long as yesterday (or today) counted; a full missed
+  // day resets only the current streak. Best streak and badges are kept.
+  const sinceActive = state.lastActiveDay ? daysBetween(state.lastActiveDay, now) : Infinity;
+  const currentStreak = sinceActive <= 1 ? state.currentStreak : 0;
 
   return {
     ...state,
@@ -229,9 +296,10 @@ export function advanceQuest(state: UserState, id: string, now: Date, increment 
     ...current,
     quests: current.quests.map(q => (q.id === id ? { ...q, progress, completed } : q)),
   };
-  return {
+  const result = {
     state: grantRewards(withQuest, { energy: (quest.points / quest.target) * steps, growth, scales }),
   };
+  return completed ? withStreakCredit(result, now) : result;
 }
 
 export function petDragon(state: UserState, now: Date): ActionResult {
@@ -291,14 +359,14 @@ export function completeFocusSession(state: UserState, now: Date): ActionResult 
   };
 
   if (daily.focusRewards >= DAILY_LIMITS.focusRewards) {
-    return {
+    return withStreakCredit({
       state: { ...withQuest, daily, isNapping: false },
       message: "Great focus! You've earned all of today's focus growth. Ember is proud of you.",
-    };
+    }, now);
   }
-  return {
+  return withStreakCredit({
     state: grantRewards({ ...withQuest, daily: { ...daily, focusRewards: daily.focusRewards + 1 } }, REWARDS.focus),
-  };
+  }, now);
 }
 
 /** Logs today's check-in. A second check-in on the same day updates the log without extra rewards. */
@@ -319,7 +387,10 @@ export function logCheckIn(state: UserState, energy: number, mood: number, now: 
     quests: current.quests.map(q => (q.type === 'symptom' ? { ...q, progress: q.target, completed: true } : q)),
     daily: { ...daily, checkInRewarded: true },
   };
-  return { state: daily.checkInRewarded ? { ...withLog, isNapping: false } : grantRewards(withLog, REWARDS.checkIn) };
+  return withStreakCredit(
+    { state: daily.checkInRewarded ? { ...withLog, isNapping: false } : grantRewards(withLog, REWARDS.checkIn) },
+    now,
+  );
 }
 
 export function hasCheckedInToday(state: UserState, now: Date): boolean {

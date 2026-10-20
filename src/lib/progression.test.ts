@@ -93,17 +93,26 @@ describe('daily rollover', () => {
     state = feedDragon(state, day(20)).state;
     state = rollOverDay(state, day(21));
     expect(state.quests.every(q => !q.completed && q.progress === 0)).toBe(true);
-    expect(state.daily).toEqual({ date: dayKey(day(21)), feeds: 0, focusRewards: 0, checkInRewarded: false });
+    expect(state.daily).toEqual({
+      date: dayKey(day(21)),
+      feeds: 0,
+      focusRewards: 0,
+      checkInRewarded: false,
+      meaningfulActivity: false,
+    });
   });
 
-  it('extends the streak after a fully completed consecutive day', () => {
-    const state = rollOverDay({ ...completeAllQuests(hatched()), currentStreak: 2 }, day(21));
-    expect(state.currentStreak).toBe(3);
-    expect(state.bestStreak).toBe(3);
+  it('keeps the streak alive over a rollover when yesterday counted', () => {
+    const state = rollOverDay({ ...hatched(), currentStreak: 2, bestStreak: 2, lastActiveDay: dayKey(day(20)) }, day(21));
+    expect(state.currentStreak).toBe(2);
+    expect(state.bestStreak).toBe(2);
   });
 
   it('resets only the current streak after a missed day', () => {
-    const state = rollOverDay({ ...completeAllQuests(hatched()), currentStreak: 5, bestStreak: 5 }, day(23));
+    const state = rollOverDay(
+      { ...completeAllQuests(hatched()), currentStreak: 5, bestStreak: 5, lastActiveDay: dayKey(day(20)) },
+      day(22),
+    );
     expect(state.currentStreak).toBe(0);
     expect(state.bestStreak).toBe(5);
   });
@@ -248,7 +257,9 @@ describe('migration from older saves', () => {
     expect(state.goldenScales).toBe(40);
     expect(state.inventory).toEqual(['scarf_red']);
     expect(state.customQuestTypes).toEqual([]);
-    expect(state.currentStreak).toBe(0);
+    // The save's last day included a check-in, which now counts toward a streak.
+    expect(state.currentStreak).toBe(1);
+    expect(state.lastActiveDay).toBe(dayKey(day(20)));
     expect(state.quests[0]).toMatchObject({ target: 1, progress: 1 });
     expect(state.badges.find(b => b.id === 'badge_hatch')?.unlockedAt).toBe('2026-10-01');
     expect(state.badges.length).toBeGreaterThan(1);
