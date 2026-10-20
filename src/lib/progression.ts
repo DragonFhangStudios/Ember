@@ -1,5 +1,6 @@
 import { DragonStage, DailyRewards, Quest, SymptomLog, UserState } from '../types';
 import { INITIAL_QUESTS, BADGES } from '../constants';
+import { sanitizeFocusSession } from './focusTimer';
 import {
   LEGACY_BOND_KEY,
   LOCAL_BOND_KEY,
@@ -24,7 +25,10 @@ import {
 // A day counts toward the streak with one meaningful activity: completing a
 // quest, finishing a focus session, or logging a check-in (not petting/feeding).
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
+
+/** Completed focus-session ids kept for de-duplication (see focusSession.ts for why pruning is safe). */
+export const COMPLETED_FOCUS_SESSIONS_KEPT = 200;
 
 // Pre-v6 rules (evolution by growth, capped at 100). Only used to migrate old saves.
 const LEGACY_MAX_GROWTH = 100;
@@ -127,6 +131,31 @@ export function grantRewards(
 }
 
 /**
+ * Records `day` as an active day: adds it to lifetime active days and, if it
+ * comes after the last active day, continues or restarts the streak. A day
+ * already counted, or earlier than the last active day, never changes or
+ * removes the streak.
+ */
+export function recordActiveDay(state: UserState, day: Date): { state: UserState; gap: number } {
+  const gap = state.lastActiveDay ? daysBetween(state.lastActiveDay, day) : Infinity;
+  const activity = addActiveDay(state.activity, isoDay(day));
+  const stage = higherStage(state.stage, stageForActiveDays(lifetimeActiveDays(activity)));
+  if (gap <= 0) return { state: { ...state, activity, stage }, gap };
+  const currentStreak = gap === 1 ? state.currentStreak + 1 : 1;
+  return {
+    state: {
+      ...state,
+      activity,
+      stage,
+      currentStreak,
+      bestStreak: Math.max(state.bestStreak, currentStreak),
+      lastActiveDay: dayKey(day),
+    },
+    gap,
+  };
+}
+
+/**
  * Counts today toward the streak and lifetime active days. Only the first
  * meaningful activity of a day changes anything; later ones are no-ops.
  * Continues the streak when the last active day was yesterday, otherwise
@@ -136,24 +165,15 @@ export function creditMeaningfulActivity(state: UserState, now: Date): { state: 
   const daily = dailyFor(state, now);
   if (daily.meaningfulActivity) return { state };
 
-  const today = dayKey(now);
-  const gap = state.lastActiveDay ? daysBetween(state.lastActiveDay, now) : Infinity;
   // Clock moved backwards past the last active day: don't touch the streak.
-  if (gap < 0) return { state };
+  if (state.lastActiveDay && daysBetween(state.lastActiveDay, now) < 0) return { state };
 
+  const recorded = recordActiveDay(state, now);
+  const { gap } = recorded;
   const continues = gap === 1;
-  const currentStreak = gap === 0 ? state.currentStreak : continues ? state.currentStreak + 1 : 1;
-  const activity = addActiveDay(state.activity, isoDay(now));
-  const stage = higherStage(state.stage, stageForActiveDays(lifetimeActiveDays(activity)));
-  const next: UserState = {
-    ...state,
-    currentStreak,
-    bestStreak: Math.max(state.bestStreak, currentStreak),
-    lastActiveDay: today,
-    activity,
-    stage,
-    daily: { ...daily, meaningfulActivity: true },
-  };
+  const currentStreak = recorded.state.currentStreak;
+  const stage = recorded.state.stage;
+  const next: UserState = { ...recorded.state, daily: { ...daily, meaningfulActivity: true } };
 
   let message: string | undefined;
   if (continues && currentStreak > 1) {
@@ -198,6 +218,8 @@ export function createInitialState(now: Date): UserState {
     currentStreak: 0,
     bestStreak: 0,
     daily: freshDaily(today),
+    focus: null,
+    completedFocusSessions: [],
   };
 }
 
@@ -332,6 +354,11 @@ export function migrateState(raw: unknown, now: Date): UserState {
     lastLogin,
     isNapping: !!saved.isNapping,
     daily,
+    // v7: the shared focus session and its de-duplication ledger.
+    focus: sanitizeFocusSession(saved.focus, now.getTime()),
+    completedFocusSessions: Array.isArray(saved.completedFocusSessions)
+      ? [...new Set(saved.completedFocusSessions.filter((id): id is string => typeof id === 'string'))].slice(-COMPLETED_FOCUS_SESSIONS_KEPT)
+      : [],
   };
 }
 
@@ -473,6 +500,31 @@ export function completeFocusSession(state: UserState, now: Date): ActionResult 
   return withStreakCredit({
     state: grantRewards({ ...withQuest, daily: { ...daily, focusRewards: daily.focusRewards + 1 } }, REWARDS.focus),
   }, now);
+}
+
+/**
+ * A focus session that ended at `completedAt` but is only processed `now`
+ * (Ember was closed or suspended). The activity counts on the day it
+ * happened, recorded before today's rollover so a legitimate streak isn't
+ * broken; energy and Bond are paid against the processing day's limits.
+ */
+export function completeFocusSessionLate(state: UserState, completedAt: Date, now: Date): ActionResult {
+  if (dayKey(completedAt) === dayKey(now)) return completeFocusSession(state, now);
+
+  const credited = recordActiveDay(state, completedAt).state;
+  const current = rollOverDay(credited, now);
+  const daily = dailyFor(current, now);
+  const away = `Your focus session finished while you were away. ${current.dragonName} is proud of you!`;
+  if (daily.focusRewards >= DAILY_LIMITS.focusRewards) {
+    return {
+      state: { ...current, daily, isNapping: false },
+      message: `${away} You've already earned all of today's focus Bond.`,
+    };
+  }
+  return {
+    state: grantRewards({ ...current, daily: { ...daily, focusRewards: daily.focusRewards + 1 } }, REWARDS.focus),
+    message: away,
+  };
 }
 
 /** Logs today's check-in. A second check-in on the same day updates the log without extra rewards. */
