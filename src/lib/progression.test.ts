@@ -99,6 +99,7 @@ describe('daily rollover', () => {
       focusRewards: 0,
       checkInRewarded: false,
       meaningfulActivity: false,
+      customQuestGrowth: 0,
     });
   });
 

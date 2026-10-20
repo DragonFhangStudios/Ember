@@ -7,7 +7,7 @@ import { INITIAL_QUESTS, BADGES } from '../constants';
 // A day counts toward the streak with one meaningful activity: completing a
 // quest, finishing a focus session, or logging a check-in (not petting/feeding).
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const MAX_GROWTH = 100;
 
 // Minimum growth required for each stage, highest first.
@@ -19,9 +19,12 @@ export const STAGE_THRESHOLDS: ReadonlyArray<readonly [DragonStage, number]> = [
   [DragonStage.EGG, 0],
 ];
 
+// Tune these during playtesting.
 export const DAILY_LIMITS = {
   feeds: 3,
   focusRewards: 3,
+  /** Max growth per calendar day from custom quests. Energy and streak credit are unaffected. */
+  customQuestGrowth: 4,
 };
 
 export const REWARDS = {
@@ -54,6 +57,18 @@ export function daysBetween(fromKey: string, now: Date): number {
 }
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+// Keeps fractional per-step growth (e.g. 2/3) from drifting when summed.
+const roundGrowth = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/** Growth a custom quest has granted for `progress` steps (before the daily cap). */
+function customQuestGrowthEarned(quest: Quest, progress: number): number {
+  const perStep = REWARDS.questGrowth / quest.target;
+  // Medication quests swap the final step's growth for a completion bonus.
+  if (quest.type === 'medication' && progress >= quest.target) {
+    return perStep * (quest.target - 1) + REWARDS.medication.growth;
+  }
+  return perStep * progress;
+}
 
 export function stageForGrowth(growth: number): DragonStage {
   return STAGE_THRESHOLDS.find(([, min]) => growth >= min)![0];
@@ -64,7 +79,7 @@ export function stageThreshold(stage: DragonStage): number {
 }
 
 export function freshDaily(date: string): DailyRewards {
-  return { date, feeds: 0, focusRewards: 0, checkInRewarded: false, meaningfulActivity: false };
+  return { date, feeds: 0, focusRewards: 0, checkInRewarded: false, meaningfulActivity: false, customQuestGrowth: 0 };
 }
 
 /** Today's reward counters, treating counters from another day as empty. */
@@ -202,6 +217,16 @@ export function migrateState(raw: unknown, now: Date): UserState {
           checkInRewarded: quests.some(q => q.type === 'symptom' && q.completed),
         };
 
+  // Pre-v5 saves had no custom-quest growth cap: count growth already earned
+  // today from custom quests so the cap can't be bypassed by upgrading.
+  if (num(saved.version, 0) < 5 && daily.date === lastLogin) {
+    const earned = quests
+      .filter(q => q.isCustom && q.isDaily)
+      .reduce((sum, q) => sum + customQuestGrowthEarned(q, Math.min(q.progress, q.target)), 0);
+    daily.customQuestGrowth = roundGrowth(Math.min(DAILY_LIMITS.customQuestGrowth, earned));
+  }
+  daily.customQuestGrowth = num(daily.customQuestGrowth, 0);
+
   // Pre-v4 saves counted a streak day only at the next rollover, so a live
   // streak covered days up to the day before lastLogin. Carry it over, then
   // credit lastLogin itself if anything meaningful already happened that day.
@@ -292,12 +317,28 @@ export function advanceQuest(state: UserState, id: string, now: Date, increment 
     scales = REWARDS.medication.scales;
   }
 
-  const withQuest = {
+  let withQuest: UserState = {
     ...current,
     quests: current.quests.map(q => (q.id === id ? { ...q, progress, completed } : q)),
   };
-  const result = {
+
+  // Custom quests share a daily growth allowance. A step that would exceed it
+  // gets only what's left; energy and streak credit are never reduced.
+  let message: string | undefined;
+  if (quest.isCustom) {
+    const daily = dailyFor(current, now);
+    const remaining = Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth);
+    const granted = Math.min(growth, remaining);
+    if (granted < growth) {
+      message = "You've earned today's growth from custom quests. They still count for energy and your streak!";
+    }
+    growth = granted;
+    withQuest = { ...withQuest, daily: { ...daily, customQuestGrowth: roundGrowth(daily.customQuestGrowth + granted) } };
+  }
+
+  const result: ActionResult = {
     state: grantRewards(withQuest, { energy: (quest.points / quest.target) * steps, growth, scales }),
+    message,
   };
   return completed ? withStreakCredit(result, now) : result;
 }

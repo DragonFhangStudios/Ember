@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Quest, UserState } from '../types';
 import {
   DAILY_LIMITS,
+  SAVE_VERSION,
   advanceQuest,
   completeFocusSession,
   createInitialState,
@@ -248,7 +249,7 @@ describe('migrating saves from before meaningful-activity streaks', () => {
     const state = reload(v3Save({ currentStreak: 0, bestStreak: 0 }) as UserState, day(20, 12));
     expect(state.currentStreak).toBe(0);
     expect(state.lastActiveDay).toBeUndefined();
-    expect(state.version).toBe(4);
+    expect(state.version).toBe(SAVE_VERSION);
   });
 
   it('round-trips the new fields through a save', () => {

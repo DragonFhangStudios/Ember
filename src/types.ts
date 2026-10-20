@@ -58,6 +58,7 @@ export interface DailyRewards {
   focusRewards: number; // focus sessions that granted energy/growth
   checkInRewarded: boolean;
   meaningfulActivity: boolean; // today already counted toward the streak
+  customQuestGrowth: number; // growth earned today from custom quests (capped)
 }
 
 export interface UserState {
