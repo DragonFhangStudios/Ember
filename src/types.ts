@@ -79,6 +79,19 @@ export interface ActivityLog {
 /** Bond contributions per source (device id or 'legacy'). Total Bond is the sum. */
 export type BondLedger = Record<string, number>;
 
+/**
+ * The one shared focus session (all tabs see the same one). Only state
+ * transitions are persisted; the countdown is derived from `endsAt`.
+ */
+export interface FocusSession {
+  id: string; // unique per session, never reused
+  status: 'running' | 'paused' | 'finished';
+  durationMs: number;
+  remainingMs: number; // authoritative while paused; derived from endsAt while running
+  endsAt: number | null; // epoch ms, only while running
+  completedAt?: number; // epoch ms the session actually ended
+}
+
 export interface UserState {
   version?: number;
   dragonName: string;
@@ -109,4 +122,6 @@ export interface UserState {
   themeColor?: string;
   isDarkMode?: boolean;
   daily: DailyRewards;
+  focus: FocusSession | null;
+  completedFocusSessions: string[]; // ids already rewarded (bounded; see progression.ts)
 }

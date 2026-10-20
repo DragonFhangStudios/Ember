@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, TrendingUp, Trophy, Plus, ChevronDown, Palette } from 'lucide-react';
 import { UserState, DragonStage, Quest, CosmeticItem, CustomQuestType } from './types';
@@ -6,7 +6,6 @@ import {
   ActionResult,
   DAILY_LIMITS,
   advanceQuest,
-  completeFocusSession,
   createInitialState,
   dailyFor,
   evaluateBadges,
@@ -15,9 +14,11 @@ import {
   logCheckIn,
   migrateState,
   petDragon,
-  rollOverDay,
 } from './lib/progression';
-import { useFocusTimer } from './hooks/useFocusTimer';
+import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/focusSession';
+import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from './lib/store';
+import { createRevisionGate } from './lib/revisionGate';
+import { parseLegacySave } from './lib/legacySave';
 import { DragonAvatar } from './components/DragonAvatar';
 import { StatsHeader } from './components/StatsHeader';
 import { QuestItem } from './components/QuestItem';
@@ -30,8 +31,10 @@ import { Badges } from './components/Badges';
 import { CustomQuestForm } from './components/CustomQuestForm';
 import { BondingActions } from './components/BondingActions';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
+import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
 import { cn } from './lib/utils';
 
+// Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
 const STORAGE_KEY = 'ember_user_state_v2';
 // Kept outside the save so a save copied to another device gets its own Bond ledger entry.
 const DEVICE_ID_KEY = 'ember_device_id';
@@ -49,22 +52,42 @@ function getDeviceId(): string {
     return 'local';
   }
 }
-const DAY_CHECK_INTERVAL_MS = 30_000;
 
-function loadState(now: Date): UserState {
-  let raw: unknown = null;
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    raw = saved ? JSON.parse(saved) : null;
-  } catch {
-    raw = null;
-  }
-  return evaluateBadges(rollOverDay({ ...migrateState(raw, now), deviceId: getDeviceId() }, now), now);
+/**
+ * The pre-IndexedDB save: null only when there genuinely is none. Throws when
+ * storage can't be read, the data is corrupt, or it isn't a recognizable Ember
+ * save, so a failed read is never mistaken for "no save" (see openStore).
+ */
+function readLegacySave(): unknown {
+  return parseLegacySave(localStorage.getItem(STORAGE_KEY));
 }
+
+function newFocusSessionId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `focus_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+const DAY_CHECK_INTERVAL_MS = 30_000;
+const FOCUS_TICK_MS = 250;
+
+/**
+ * 'preview' = saving isn't possible right now; nothing can change until it is.
+ * 'recovery' = an existing save couldn't be read; nothing was created or changed.
+ */
+type SaveMode = 'loading' | 'ready' | 'preview' | 'recovery';
 
 export default function App() {
   const [state, setState] = useState<UserState | null>(null);
-  const stateRef = useRef<UserState | null>(null);
+  const [saveMode, setSaveMode] = useState<SaveMode>('loading');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [openAttempt, setOpenAttempt] = useState(0);
+  const [startFresh, setStartFresh] = useState(false);
+  const storeRef = useRef<EmberStore<UserState> | null>(null);
+  // Which store instance (epoch) and revision the screen shows; see revisionGate.ts.
+  const gateRef = useRef(createRevisionGate());
+  const epochRef = useRef(0);
+  const deviceIdRef = useRef(getDeviceId());
   const [activeTab, setActiveTab] = useState<'dashboard' | 'focus' | 'checkin' | 'wardrobe' | 'insights' | 'badges'>('dashboard');
   const [showCustomQuest, setShowCustomQuest] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -73,6 +96,10 @@ export default function App() {
   const flavorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isLevelingUp, setIsLevelingUp] = useState(false);
   const prevStageRef = useRef<DragonStage | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const settlingSessionRef = useRef<string | null>(null);
+  const saveModeRef = useRef<SaveMode>('loading');
+  saveModeRef.current = saveMode;
 
   const showFlavorText = (text: string, durationMs = 3000) => {
     setPetFlavorText(text);
@@ -80,23 +107,146 @@ export default function App() {
     flavorTimeoutRef.current = setTimeout(() => setPetFlavorText(null), durationMs);
   };
 
-  // Applies a pure progression action to the latest state. The ref is updated
-  // immediately so rapid clicks can't apply the same reward twice.
-  const runAction = (action: (current: UserState, now: Date) => ActionResult) => {
-    const current = stateRef.current;
-    if (!current) return;
+  const withDevice = (s: UserState): UserState => ({ ...s, deviceId: deviceIdRef.current });
+
+  // Shows a committed save from the current store instance, ignoring older
+  // revisions and anything from a store that has since been replaced.
+  const show = useCallback((epoch: number, result: StoreResult<UserState>) => {
+    if (!gateRef.current.accept(epoch, result.rev)) return false;
+    setState({ ...result.state, deviceId: deviceIdRef.current });
+    return true;
+  }, []);
+
+  /**
+   * Every state change goes through here: one store transaction that settles
+   * the latest saved state (a focus session that ended, a new day), applies
+   * the action, and unlocks badges. The UI changes only after the commit.
+   */
+  const commit = useCallback((action?: (current: UserState, now: Date) => ActionResult) => {
+    const store = storeRef.current;
+    if (!store) {
+      if (action && saveModeRef.current === 'preview') showFlavorText("Preview mode: that wasn't saved.");
+      return Promise.resolve(null);
+    }
+    const epoch = epochRef.current;
     const now = new Date();
-    const { state: next, message } = action(current, now);
-    const withBadges = evaluateBadges(next, now);
-    stateRef.current = withBadges;
-    setState(withBadges);
-    if (message) showFlavorText(message);
-  };
+    let messages: string[] = [];
+    return store
+      .update(saved => {
+        messages = [];
+        const current = withDevice(saved);
+        const settled = settle(current, now);
+        if (settled.message) messages.push(settled.message);
+        let next = settled.state;
+        if (action) {
+          const result = action(next, now);
+          next = result.state;
+          if (result.message) messages.push(result.message);
+        }
+        next = evaluateBadges(next, now);
+        return next === current ? saved : next;
+      })
+      .then(
+        result => {
+          if (!show(epoch, result)) return null; // a replaced store's late result
+          setSaveError(null);
+          if (messages.length) showFlavorText(messages.join(' '));
+          return result;
+        },
+        error => {
+          console.error('Ember could not save', error);
+          setSaveError("Ember couldn't save that just now, so nothing changed. Please try again.");
+          return null;
+        },
+      );
+  }, [show]);
 
-  const update = (fn: (current: UserState) => UserState) => runAction(current => ({ state: fn(current) }));
+  const runAction = (action: (current: UserState, now: Date) => ActionResult) => commit(action);
+  const update = (fn: (current: UserState) => UserState) => commit(current => ({ state: fn(current) }));
 
-  const focus = useFocusTimer(() => runAction(completeFocusSession));
-  const isFocusActive = focus.timer.status === 'running';
+  // Open the save store (migrating the old localStorage save on first run).
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe = () => {};
+    let epoch = 0;
+    const gate = gateRef.current;
+    setSaveMode('loading');
+    openStore<UserState>({
+      migrate: raw => migrateState(raw, new Date()),
+      readLegacy: readLegacySave,
+      startFreshIfLegacyUnreadable: startFresh,
+      onBlocked: () => setSaveError('Ember is updating its save. Please close other Ember tabs to continue.'),
+      onVersionChange: () => {
+        if (cancelled || epoch !== epochRef.current) return;
+        gate.retire(epoch);
+        storeRef.current = null;
+        setSaveMode('preview');
+      },
+    }).then(
+      ({ store, initial }) => {
+        if (cancelled) {
+          store.close();
+          return;
+        }
+        epoch = gate.begin();
+        epochRef.current = epoch;
+        storeRef.current = store;
+        setSaveError(null);
+        setStartFresh(false);
+        show(epoch, initial);
+        setSaveMode('ready');
+        unsubscribe = store.subscribe(result => show(epoch, result));
+        commit();
+      },
+      error => {
+        if (cancelled) return;
+        console.error('Ember save store unavailable', error);
+        if (error instanceof LegacySaveUnreadableError) {
+          // An existing save couldn't be read. Nothing was created or changed.
+          setState(null);
+          setSaveMode('recovery');
+          return;
+        }
+        // Read-only preview of whatever save can still be read (nothing if it can't).
+        try {
+          setState(withDevice(migrateState(readLegacySave(), new Date())));
+        } catch {
+          setState(null);
+        }
+        setSaveMode('preview');
+      },
+    );
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      if (epoch) gate.retire(epoch);
+      storeRef.current?.close();
+      storeRef.current = null;
+    };
+  }, [openAttempt, startFresh, commit, show]);
+
+  const isPreview = saveMode === 'preview';
+
+  // The shared focus session: tick locally, persist only transitions.
+  const focus = state?.focus ?? null;
+  const focusRunning = focus?.status === 'running';
+  useEffect(() => {
+    if (!focusRunning) return;
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), FOCUS_TICK_MS);
+    return () => clearInterval(id);
+  }, [focusRunning]);
+  const focusTimer = focusView(focus, nowMs);
+  const isFocusActive = focusTimer.status === 'running';
+
+  // When the session's end time passes, settle it. Any tab may do this; the
+  // store transaction makes sure it's rewarded once.
+  useEffect(() => {
+    if (focus?.status === 'running' && focus.endsAt !== null && nowMs >= focus.endsAt && settlingSessionRef.current !== focus.id) {
+      settlingSessionRef.current = focus.id;
+      commit();
+    }
+  }, [nowMs, focus, commit]);
 
   // Apply dark mode class
   useEffect(() => {
@@ -118,31 +268,22 @@ export default function App() {
     }
   }, [state?.stage]);
 
-  // Load (and migrate) saved state
+  // Settle on a timer and when returning to the app (new day, ended focus session,
+  // and picking up changes from other tabs where BroadcastChannel isn't available).
   useEffect(() => {
-    const loaded = loadState(new Date());
-    stateRef.current = loaded;
-    setState(loaded);
-  }, []);
-
-  // Start a new day if the app is left open past midnight
-  useEffect(() => {
-    const checkDay = () => update(current => rollOverDay(current, new Date()));
-    const interval = setInterval(checkDay, DAY_CHECK_INTERVAL_MS);
-    document.addEventListener('visibilitychange', checkDay);
-    window.addEventListener('focus', checkDay);
+    const check = () => {
+      setNowMs(Date.now());
+      commit();
+    };
+    const interval = setInterval(check, DAY_CHECK_INTERVAL_MS);
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', checkDay);
-      window.removeEventListener('focus', checkDay);
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('focus', check);
     };
-  }, []);
-
-  useEffect(() => {
-    if (state) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }
-  }, [state]);
+  }, [commit]);
 
   const handleUpdateQuestProgress = (id: string, increment: number = 1) => {
     runAction((current, now) => advanceQuest(current, id, now, increment));
@@ -186,24 +327,21 @@ export default function App() {
   };
 
   const handleResetProgress = () => {
-    update(current => ({
-      ...createInitialState(new Date()),
-      isDarkMode: current.isDarkMode,
-      themeColor: current.themeColor,
-      deviceId: current.deviceId
+    runAction((current, now) => ({
+      state: { ...createInitialState(now), isDarkMode: current.isDarkMode, themeColor: current.themeColor, deviceId: current.deviceId },
     }));
-    focus.reset();
     setActiveTab('dashboard');
     setShowResetConfirm(false);
   };
 
   const handlePet = () => {
-    const petCountBefore = stateRef.current?.petCount;
-    runAction(petDragon);
-    if (stateRef.current?.petCount !== petCountBefore) {
-      setIsPetted(true);
-      setTimeout(() => setIsPetted(false), 1000);
-    }
+    const petCountBefore = state?.petCount;
+    runAction(petDragon).then(result => {
+      if (result && result.state.petCount !== petCountBefore) {
+        setIsPetted(true);
+        setTimeout(() => setIsPetted(false), 1000);
+      }
+    });
   };
 
   const handleFeed = () => runAction(feedDragon);
@@ -212,7 +350,36 @@ export default function App() {
     runAction((current, now) => logCheckIn(current, energy, mood, now));
   };
 
-  if (!state) return null;
+  const handleFocusStart = () => {
+    const id = newFocusSessionId();
+    runAction((current, now) => ({ state: startFocus(current, id, now) })).then(() => setNowMs(Date.now()));
+  };
+
+  const handleFocusPause = () => {
+    const id = focusTimer.id;
+    if (id) runAction((current, now) => ({ state: pauseFocus(current, id, now) }));
+  };
+
+  const handleFocusReset = () => {
+    const id = focusTimer.id;
+    if (id) runAction(current => ({ state: resetFocus(current, id) }));
+  };
+
+  if (!state) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-app-custom px-6">
+        <div className="max-w-md w-full">
+          {saveMode === 'recovery' ? (
+            <RecoveryNotice onRetry={() => setOpenAttempt(n => n + 1)} onStartFresh={() => setStartFresh(true)} />
+          ) : saveMode === 'preview' ? (
+            <SaveStatusBanner preview error={null} onRetry={() => setOpenAttempt(n => n + 1)} onDismissError={() => {}} />
+          ) : (
+            <p className="serif text-xl text-dragon-muted text-center">{saveError ?? 'Waking Ember…'}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const BACKGROUND_COLORS = [
     { name: 'Warm White', value: '#F5F5F0' },
@@ -288,6 +455,12 @@ export default function App() {
       </header>
 
       <main className="max-w-2xl mx-auto px-6 pt-8">
+        <SaveStatusBanner
+          preview={isPreview}
+          error={saveError}
+          onRetry={() => setOpenAttempt(n => n + 1)}
+          onDismissError={() => setSaveError(null)}
+        />
         <StatsHeader userState={state} />
 
         <div className="bg-[var(--card-bg)] rounded-3xl p-8 shadow-xl border border-[var(--border-color)] mb-8 relative overflow-hidden min-h-[75vh] flex flex-col items-center justify-center transition-colors">
@@ -379,11 +552,11 @@ export default function App() {
           {activeTab === 'focus' && (
             <motion.div key="focus" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }}>
               <FocusTimer
-                timer={focus.timer}
+                timer={focusTimer}
                 rewardsLeft={Math.max(0, DAILY_LIMITS.focusRewards - dailyFor(state, new Date()).focusRewards)}
-                onStart={focus.start}
-                onPause={focus.pause}
-                onReset={focus.reset}
+                onStart={handleFocusStart}
+                onPause={handleFocusPause}
+                onReset={handleFocusReset}
               />
             </motion.div>
           )}
