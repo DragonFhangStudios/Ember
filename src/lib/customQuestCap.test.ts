@@ -94,10 +94,11 @@ describe('custom quest growth cap', () => {
     expect(state.daily.customQuestGrowth).toBe(CAP);
   });
 
-  it('caps growth from custom quests in the medication (Vitality) category too', () => {
-    const { state } = complete(withCustomQuests([custom('v', { type: 'medication' })]), 'v');
-    expect(state.growthProgress).toBe(30 + CAP); // medication would give 5
-    expect(state.goldenScales).toBe(REWARDS.medication.scales); // scales unchanged by this issue
+  it('custom quests in the Vitality category earn standard rewards that count toward the cap (#10)', () => {
+    let state = withCustomQuests([custom('v1', { type: 'medication' }), custom('v2', { type: 'medication' }), custom('v3', { type: 'medication' })]);
+    for (const id of ['v1', 'v2', 'v3']) state = complete(state, id).state;
+    expect(state.growthProgress).toBe(30 + CAP);
+    expect(state.goldenScales).toBe(0);
   });
 
   it('still counts a custom quest toward the streak after the cap is reached', () => {

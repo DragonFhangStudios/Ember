@@ -60,7 +60,11 @@ const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(mi
 // Keeps fractional per-step growth (e.g. 2/3) from drifting when summed.
 const roundGrowth = (n: number) => Math.round(n * 1e6) / 1e6;
 
-/** Growth a custom quest has granted for `progress` steps (before the daily cap). */
+/**
+ * Growth a custom quest granted for `progress` steps under the pre-v5 rules
+ * (before the daily cap and before #10, when custom Vitality quests still
+ * paid the medication bonus). Only used to migrate old saves accurately.
+ */
 function customQuestGrowthEarned(quest: Quest, progress: number): number {
   const perStep = REWARDS.questGrowth / quest.target;
   // Medication quests swap the final step's growth for a completion bonus.
@@ -312,7 +316,9 @@ export function advanceQuest(state: UserState, id: string, now: Date, increment 
 
   let growth = (REWARDS.questGrowth / quest.target) * steps;
   let scales = 0;
-  if (quest.type === 'medication' && completed) {
+  // Only the built-in Vitality quest pays the medication bonus. A custom
+  // quest's category is cosmetic, so custom quests always earn standard rewards.
+  if (quest.type === 'medication' && !quest.isCustom && completed) {
     growth = REWARDS.medication.growth;
     scales = REWARDS.medication.scales;
   }
