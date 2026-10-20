@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { Quest, UserState } from '../types';
+import { DragonStage, Quest, UserState } from '../types';
 import {
   DAILY_LIMITS,
   REWARDS,
@@ -8,8 +8,8 @@ import {
   dayKey,
   migrateState,
   rollOverDay,
-  stageForGrowth,
 } from './progression';
+import { bondTotal } from './evolution';
 
 const day = (d: number, hour = 10, minute = 0) => new Date(2026, 9, d, hour, minute);
 const CAP = DAILY_LIMITS.customQuestGrowth;
@@ -24,8 +24,8 @@ function withCustomQuests(quests: Quest[], now = day(20)): UserState {
   const base = createInitialState(now);
   return {
     ...base,
-    growthProgress: 30,
-    stage: stageForGrowth(30),
+    bond: { local: 30 },
+    stage: DragonStage.HATCHLING,
     quests: [...base.quests, ...quests],
     lastActiveDay: dayKey(now),
     currentStreak: 1,
@@ -49,7 +49,7 @@ describe('custom quest growth cap', () => {
   it('stops growth at the cap but keeps every quest completable', () => {
     let state = withCustomQuests(many(20));
     for (let i = 0; i < 20; i++) state = complete(state, `c${i}`).state;
-    expect(state.growthProgress).toBe(30 + CAP);
+    expect(bondTotal(state.bond)).toBe(30 + CAP);
     expect(state.daily.customQuestGrowth).toBe(CAP);
     expect(state.quests.filter(q => q.isCustom).every(q => q.completed)).toBe(true);
   });
@@ -63,7 +63,7 @@ describe('custom quest growth cap', () => {
   it('grants a partial reward when a quest would exceed the remaining allowance', () => {
     const start = { ...withCustomQuests([custom('a')]), daily: { ...withCustomQuests([]).daily, customQuestGrowth: CAP - 1 } };
     const { state, message } = complete(start, 'a');
-    expect(state.growthProgress).toBe(30 + 1);
+    expect(bondTotal(state.bond)).toBe(30 + 1);
     expect(state.daily.customQuestGrowth).toBe(CAP);
     expect(state.energy).toBe(60);
     expect(message).toMatch(/today's growth from custom quests/);
@@ -78,9 +78,9 @@ describe('custom quest growth cap', () => {
     let state = withCustomQuests([custom('a', { target: 3 }), custom('b', { target: 3 }), custom('c', { target: 3 })]);
     for (const id of ['a', 'b']) for (let i = 0; i < 3; i++) state = complete(state, id).state;
     expect(state.daily.customQuestGrowth).toBe(4);
-    const before = state.growthProgress;
+    const before = bondTotal(state.bond);
     const step = complete(state, 'c');
-    expect(step.state.growthProgress).toBe(before);
+    expect(bondTotal(step.state.bond)).toBe(before);
     expect(step.state.quests.find(q => q.id === 'c')?.progress).toBe(1);
     expect(step.message).toMatch(/custom quests/);
   });
@@ -88,16 +88,16 @@ describe('custom quest growth cap', () => {
   it('does not affect or consume allowance from built-in quests', () => {
     let state = withCustomQuests(many(3));
     for (let i = 0; i < 3; i++) state = complete(state, `c${i}`).state;
-    const before = state.growthProgress;
+    const before = bondTotal(state.bond);
     state = complete(state, 'q1').state; // built-in Morning Routine
-    expect(state.growthProgress).toBe(before + REWARDS.questGrowth);
+    expect(bondTotal(state.bond)).toBe(before + REWARDS.questGrowth);
     expect(state.daily.customQuestGrowth).toBe(CAP);
   });
 
   it('custom quests in the Vitality category earn standard rewards that count toward the cap (#10)', () => {
     let state = withCustomQuests([custom('v1', { type: 'medication' }), custom('v2', { type: 'medication' }), custom('v3', { type: 'medication' })]);
     for (const id of ['v1', 'v2', 'v3']) state = complete(state, id).state;
-    expect(state.growthProgress).toBe(30 + CAP);
+    expect(bondTotal(state.bond)).toBe(30 + CAP);
     expect(state.goldenScales).toBe(0);
   });
 
@@ -109,7 +109,7 @@ describe('custom quest growth cap', () => {
       daily: { ...capped.daily, meaningfulActivity: false, customQuestGrowth: CAP },
     };
     const result = complete(state, 'a');
-    expect(result.state.growthProgress).toBe(30);
+    expect(bondTotal(result.state.bond)).toBe(30);
     expect(result.state.currentStreak).toBe(2);
     expect(result.message).toMatch(/2-day streak/);
     expect(result.message).toMatch(/custom quests/);
@@ -122,24 +122,24 @@ describe('cap persistence and daily reset', () => {
     for (let i = 0; i < 2; i++) state = complete(state, `c${i}`).state;
     state = reload(state, day(20, 15));
     expect(state.daily.customQuestGrowth).toBe(CAP);
-    expect(complete(state, 'c2', day(20, 15)).state.growthProgress).toBe(state.growthProgress);
+    expect(bondTotal(complete(state, 'c2', day(20, 15)).state.bond)).toBe(bondTotal(state.bond));
   });
 
   it('resets on the next calendar day', () => {
     let state = withCustomQuests(many(3));
     for (let i = 0; i < 3; i++) state = complete(state, `c${i}`).state;
-    const before = state.growthProgress;
+    const before = bondTotal(state.bond);
     state = rollOverDay(state, day(21));
     expect(state.daily.customQuestGrowth).toBe(0);
-    expect(complete(state, 'c0', day(21)).state.growthProgress).toBe(before + REWARDS.questGrowth);
+    expect(bondTotal(complete(state, 'c0', day(21)).state.bond)).toBe(before + REWARDS.questGrowth);
   });
 
   it('resets just past midnight while the app stays open', () => {
     let state = withCustomQuests(many(3), day(20, 23, 50));
     for (let i = 0; i < 3; i++) state = complete(state, `c${i}`, day(20, 23, 55)).state;
-    const before = state.growthProgress;
+    const before = bondTotal(state.bond);
     state = complete(state, 'c0', day(21, 0, 5)).state;
-    expect(state.growthProgress).toBe(before + REWARDS.questGrowth);
+    expect(bondTotal(state.bond)).toBe(before + REWARDS.questGrowth);
   });
 });
 
@@ -148,13 +148,13 @@ describe('configurable limit', () => {
     DAILY_LIMITS.customQuestGrowth = 10;
     let state = withCustomQuests(many(8));
     for (let i = 0; i < 8; i++) state = complete(state, `c${i}`).state;
-    expect(state.growthProgress).toBe(40);
+    expect(bondTotal(state.bond)).toBe(40);
   });
 
   it('a cap of 0 disables custom quest growth but keeps energy', () => {
     DAILY_LIMITS.customQuestGrowth = 0;
     const { state } = complete(withCustomQuests([custom('a')]), 'a');
-    expect(state.growthProgress).toBe(30);
+    expect(bondTotal(state.bond)).toBe(30);
     expect(state.energy).toBe(60);
   });
 
@@ -163,7 +163,7 @@ describe('configurable limit', () => {
     for (let i = 0; i < 2; i++) state = complete(state, `c${i}`).state;
     DAILY_LIMITS.customQuestGrowth = 2;
     const after = complete(state, 'c2').state;
-    expect(after.growthProgress).toBe(state.growthProgress);
+    expect(bondTotal(after.bond)).toBe(bondTotal(state.bond));
   });
 });
 
@@ -178,7 +178,7 @@ describe('migrating saves from before the cap', () => {
     const done = many(3).map(q => ({ ...q, progress: 1, completed: true }));
     const state = reload(v4Save([...done, custom('more')]) as UserState, day(20, 15));
     expect(state.daily.customQuestGrowth).toBe(CAP);
-    expect(complete(state, 'more', day(20, 15)).state.growthProgress).toBe(state.growthProgress);
+    expect(bondTotal(complete(state, 'more', day(20, 15)).state.bond)).toBe(bondTotal(state.bond));
   });
 
   it('counts partial multi-step progress and medication bonuses', () => {
@@ -204,10 +204,10 @@ describe('migrating saves from before the cap', () => {
   });
 
   it('keeps growth, stage, and streak unchanged on upgrade', () => {
-    const save = { ...v4Save([]), growthProgress: 55, stage: stageForGrowth(55), currentStreak: 3, bestStreak: 5 };
-    const state = reload(save as UserState, day(20, 15));
-    expect(state.growthProgress).toBe(55);
-    expect(state.stage).toBe(stageForGrowth(55));
+    const save = { ...v4Save([]), growthProgress: 55, stage: DragonStage.FLEDGLING, currentStreak: 3, bestStreak: 5 };
+    const state = reload(save as unknown as UserState, day(20, 15));
+    expect(bondTotal(state.bond)).toBe(55);
+    expect(state.stage).toBe(DragonStage.FLEDGLING);
     expect(state.currentStreak).toBe(3);
     expect(state.bestStreak).toBe(5);
   });

@@ -14,13 +14,13 @@ import {
   migrateState,
   petDragon,
   rollOverDay,
-  stageForGrowth,
 } from './progression';
+import { bondTotal } from './evolution';
 
 const day = (d: number, hour = 10, minute = 0) => new Date(2026, 9, d, hour, minute);
 
-function hatched(growth = 30, now = day(20)): UserState {
-  return { ...createInitialState(now), growthProgress: growth, stage: stageForGrowth(growth) };
+function hatched(growth = 30, now = day(20), stage = DragonStage.HATCHLING): UserState {
+  return { ...createInitialState(now), bond: { local: growth }, stage };
 }
 
 const completeAllQuests = (state: UserState): UserState => ({
@@ -28,40 +28,30 @@ const completeAllQuests = (state: UserState): UserState => ({
   quests: state.quests.map(q => ({ ...q, progress: q.target, completed: true })),
 });
 
-describe('stages', () => {
-  it('derives each stage from growth thresholds', () => {
-    expect(stageForGrowth(0)).toBe(DragonStage.EGG);
-    expect(stageForGrowth(20.9)).toBe(DragonStage.EGG);
-    expect(stageForGrowth(21)).toBe(DragonStage.HATCHLING);
-    expect(stageForGrowth(41)).toBe(DragonStage.FLEDGLING);
-    expect(stageForGrowth(66)).toBe(DragonStage.DRAKE);
-    expect(stageForGrowth(91)).toBe(DragonStage.ANCIENT);
-    expect(stageForGrowth(100)).toBe(DragonStage.ANCIENT);
-  });
-
-  it('evolves when a reward crosses a threshold and caps growth at 100', () => {
-    let state = { ...createInitialState(day(20)), growthProgress: 19 };
+describe('rewards and Bond', () => {
+  it('growth rewards add to Bond without a cap and never change the stage', () => {
+    let state: UserState = { ...createInitialState(day(20)), bond: { local: 19 } };
     state = petDragon(state, day(20)).state;
-    expect(state.growthProgress).toBe(21);
-    expect(state.stage).toBe(DragonStage.HATCHLING);
+    expect(bondTotal(state.bond)).toBe(21);
+    expect(state.stage).toBe(DragonStage.EGG);
 
-    state = petDragon({ ...state, growthProgress: 99.5 }, day(21)).state;
-    expect(state.growthProgress).toBe(100);
-    expect(state.stage).toBe(DragonStage.ANCIENT);
+    state = petDragon({ ...state, bond: { local: 99.5 } }, day(21)).state;
+    expect(bondTotal(state.bond)).toBe(101.5);
+    expect(state.stage).toBe(DragonStage.EGG);
   });
 });
 
-describe('missed days never take growth away', () => {
-  it.each([1, 2, 7, 60])('keeps growth and stage after %i day(s) away', daysAway => {
-    const before = hatched(70);
+describe('missed days never take Bond or stage away', () => {
+  it.each([1, 2, 7, 60])('keeps Bond and stage after %i day(s) away', daysAway => {
+    const before = hatched(70, day(20), DragonStage.DRAKE);
     const after = rollOverDay(before, day(20 + daysAway));
-    expect(after.growthProgress).toBe(70);
+    expect(bondTotal(after.bond)).toBe(70);
     expect(after.stage).toBe(DragonStage.DRAKE);
   });
 
-  it('keeps growth even when yesterday’s rituals and quests were skipped', () => {
-    const after = rollOverDay(hatched(45), day(21));
-    expect(after.growthProgress).toBe(45);
+  it('keeps Bond and stage even when yesterday’s rituals and quests were skipped', () => {
+    const after = rollOverDay(hatched(45, day(20), DragonStage.FLEDGLING), day(21));
+    expect(bondTotal(after.bond)).toBe(45);
     expect(after.stage).toBe(DragonStage.FLEDGLING);
   });
 
@@ -148,7 +138,7 @@ describe('daily reward limits', () => {
     const first = petDragon(hatched(30), day(20)).state;
     const second = petDragon(first, day(20, 18));
     expect(second.state.petCount).toBe(1);
-    expect(second.state.growthProgress).toBe(30 + REWARDS.pet.growth);
+    expect(bondTotal(second.state.bond)).toBe(30 + REWARDS.pet.growth);
     expect(second.message).toBeDefined();
     expect(petDragon(second.state, day(21)).state.petCount).toBe(2);
   });
@@ -157,8 +147,8 @@ describe('daily reward limits', () => {
     let state = createInitialState(day(20));
     state = feedDragon(state, day(20)).state;
     state = feedDragon(state, day(20, 12)).state;
-    expect(state.growthProgress).toBe(REWARDS.incubate.growth);
-    expect(feedDragon(state, day(21)).state.growthProgress).toBe(2 * REWARDS.incubate.growth);
+    expect(bondTotal(state.bond)).toBe(REWARDS.incubate.growth);
+    expect(bondTotal(feedDragon(state, day(21)).state.bond)).toBe(2 * REWARDS.incubate.growth);
   });
 
   it(`caps feeding a hatched dragon at ${DAILY_LIMITS.feeds} per day`, () => {
@@ -166,7 +156,7 @@ describe('daily reward limits', () => {
     for (let i = 0; i < 10; i++) state = feedDragon(state, day(20, 12, i)).state;
     expect(state.daily.feeds).toBe(DAILY_LIMITS.feeds);
     expect(state.energy).toBe(50 + DAILY_LIMITS.feeds * REWARDS.feed.energy);
-    expect(state.growthProgress).toBe(30 + DAILY_LIMITS.feeds * REWARDS.feed.growth);
+    expect(bondTotal(state.bond)).toBe(30 + DAILY_LIMITS.feeds * REWARDS.feed.growth);
   });
 
   it(`keeps focus repeatable but caps its rewards at ${DAILY_LIMITS.focusRewards} per day`, () => {
@@ -178,7 +168,7 @@ describe('daily reward limits', () => {
       lastMessage = result.message;
     }
     expect(state.daily.focusRewards).toBe(DAILY_LIMITS.focusRewards);
-    expect(state.growthProgress).toBe(30 + DAILY_LIMITS.focusRewards * REWARDS.focus.growth);
+    expect(bondTotal(state.bond)).toBe(30 + DAILY_LIMITS.focusRewards * REWARDS.focus.growth);
     expect(state.energy).toBe(50 + DAILY_LIMITS.focusRewards * REWARDS.focus.energy);
     expect(state.quests.find(q => q.type === 'focus')?.completed).toBe(true);
     expect(lastMessage).toMatch(/focus growth/);
@@ -193,12 +183,12 @@ describe('daily reward limits', () => {
     state = repeat.state;
     expect(state.symptomLogs).toHaveLength(1);
     expect(state.symptomLogs[0]).toMatchObject({ energy: 4, mood: 5 });
-    expect(state.growthProgress).toBe(30 + REWARDS.checkIn.growth);
+    expect(bondTotal(state.bond)).toBe(30 + REWARDS.checkIn.growth);
     expect(repeat.message).toMatch(/Updated/);
 
     state = logCheckIn(state, 3, 3, day(21)).state;
     expect(state.symptomLogs).toHaveLength(2);
-    expect(state.growthProgress).toBe(30 + 2 * REWARDS.checkIn.growth);
+    expect(bondTotal(state.bond)).toBe(30 + 2 * REWARDS.checkIn.growth);
   });
 
   it('limits survive a save/load round-trip (refresh)', () => {
@@ -207,8 +197,8 @@ describe('daily reward limits', () => {
     state = logCheckIn(state, 3, 3, day(20)).state;
     const reloaded = migrateState(JSON.parse(JSON.stringify(state)), day(20, 13));
     const fed = feedDragon(reloaded, day(20, 13)).state;
-    expect(fed.growthProgress).toBe(reloaded.growthProgress);
-    expect(logCheckIn(reloaded, 1, 1, day(20, 13)).state.growthProgress).toBe(reloaded.growthProgress);
+    expect(bondTotal(fed.bond)).toBe(bondTotal(reloaded.bond));
+    expect(bondTotal(logCheckIn(reloaded, 1, 1, day(20, 13)).state.bond)).toBe(bondTotal(reloaded.bond));
   });
 });
 
@@ -219,7 +209,7 @@ describe('quests', () => {
     const quest = state.quests.find(q => q.id === 'q5')!;
     expect(quest.progress).toBe(4);
     expect(quest.completed).toBe(true);
-    expect(state.growthProgress).toBeCloseTo(30 + REWARDS.questGrowth);
+    expect(bondTotal(state.bond)).toBeCloseTo(30 + REWARDS.questGrowth);
     expect(state.energy).toBe(50 + quest.points);
   });
 
@@ -233,7 +223,7 @@ describe('quests', () => {
 describe('migration from older saves', () => {
   it('starts fresh on missing or corrupt data', () => {
     expect(migrateState(null, day(20)).stage).toBe(DragonStage.EGG);
-    expect(migrateState('garbage', day(20)).growthProgress).toBe(0);
+    expect(bondTotal(migrateState('garbage', day(20)).bond)).toBe(0);
   });
 
   it('upgrades a v2 save, preserving progress and filling new fields', () => {
@@ -253,7 +243,7 @@ describe('migration from older saves', () => {
       petCount: 7,
     };
     const state = migrateState(v2, day(20, 15));
-    expect(state.growthProgress).toBe(41);
+    expect(bondTotal(state.bond)).toBe(41);
     expect(state.stage).toBe(DragonStage.FLEDGLING);
     expect(state.goldenScales).toBe(40);
     expect(state.inventory).toEqual(['scarf_red']);
@@ -265,11 +255,12 @@ describe('migration from older saves', () => {
     expect(state.badges.find(b => b.id === 'badge_hatch')?.unlockedAt).toBe('2026-10-01');
     expect(state.badges.length).toBeGreaterThan(1);
     // Today's check-in was already done before the upgrade, so no second reward.
-    expect(logCheckIn(state, 5, 5, day(20, 16)).state.growthProgress).toBe(41);
+    expect(bondTotal(logCheckIn(state, 5, 5, day(20, 16)).state.bond)).toBe(41);
   });
 
   it('keeps growth on a save whose stage was reset to Egg by the old daily softlock', () => {
-    const state = migrateState({ ...hatched(55), stage: 'Egg', daily: undefined }, day(20));
+    const old = { ...createInitialState(day(20)), version: 3, growthProgress: 55, stage: 'Egg', daily: undefined };
+    const state = migrateState(old, day(20));
     expect(state.stage).toBe(DragonStage.FLEDGLING);
   });
 });

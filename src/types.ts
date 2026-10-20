@@ -61,13 +61,33 @@ export interface DailyRewards {
   customQuestGrowth: number; // growth earned today from custom quests (capped)
 }
 
+/**
+ * "At least `floor` active days happened strictly before `before`" (ISO date).
+ * Created when migrating saves from before active-day tracking.
+ */
+export interface LegacyActiveDayCredit {
+  floor: number;
+  before: string;
+}
+
+/** Lifetime active days, shaped to merge safely across devices (set union + lower-bound claims). */
+export interface ActivityLog {
+  days: string[]; // sorted unique ISO local dates (YYYY-MM-DD) with a meaningful activity
+  legacy: LegacyActiveDayCredit[];
+}
+
+/** Bond contributions per source (device id or 'legacy'). Total Bond is the sum. */
+export type BondLedger = Record<string, number>;
+
 export interface UserState {
   version?: number;
   dragonName: string;
   stage: DragonStage;
   energy: number;
   goldenScales: number;
-  growthProgress: number; // 0-100
+  bond: BondLedger; // permanent, uncapped; growth rewards add to this device's entry
+  activity: ActivityLog; // drives evolution
+  deviceId?: string; // this install's ledger key; assigned at load, never trusted from a save
   lastLogin: string;
   isNapping: boolean;
   quests: Quest[];
