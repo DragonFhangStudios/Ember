@@ -296,8 +296,16 @@ export function migrateState(raw: unknown, now: Date): UserState {
     ]) {
       if (day) activity = addActiveDay(activity, day);
     }
+    // The old stage already reflects everything earned up to the upgrade,
+    // including any activity earlier on the upgrade day itself. In that case
+    // the credit covers today too, so upgrading never adds an extra day; if
+    // today had no activity yet, a new one after upgrading counts once.
     const floor = activeDaysThreshold(stage);
-    if (floor > 0) activity = { ...activity, legacy: [{ floor, before: isoDay(now) }] };
+    if (floor > 0) {
+      const today = isoDay(now);
+      const tomorrow = isoDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+      activity = { ...activity, legacy: [{ floor, before: activity.days.includes(today) ? tomorrow : today }] };
+    }
   }
   stage = higherStage(stage, stageForActiveDays(lifetimeActiveDays(activity)));
 
@@ -387,7 +395,7 @@ export function advanceQuest(state: UserState, id: string, now: Date, increment 
     const remaining = Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth);
     const granted = Math.min(growth, remaining);
     if (granted < growth) {
-      message = "You've earned today's growth from custom quests. They still count for energy and your streak!";
+      message = "You've earned today's Bond from custom quests. They still count for energy and your streak!";
     }
     growth = granted;
     withQuest = { ...withQuest, daily: { ...daily, customQuestGrowth: roundGrowth(daily.customQuestGrowth + granted) } };
@@ -459,7 +467,7 @@ export function completeFocusSession(state: UserState, now: Date): ActionResult 
   if (daily.focusRewards >= DAILY_LIMITS.focusRewards) {
     return withStreakCredit({
       state: { ...withQuest, daily, isNapping: false },
-      message: "Great focus! You've earned all of today's focus growth. Ember is proud of you.",
+      message: "Great focus! You've earned all of today's focus Bond. Ember is proud of you.",
     }, now);
   }
   return withStreakCredit({

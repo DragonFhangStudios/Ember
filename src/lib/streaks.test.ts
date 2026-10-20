@@ -65,7 +65,7 @@ describe('what counts as a meaningful activity', () => {
     const { state, message } = completeFocusSession(capped, day(20));
     expect(state.currentStreak).toBe(1);
     expect(message).toMatch(/Today counts/);
-    expect(message).toMatch(/focus growth/);
+    expect(message).toMatch(/focus Bond/);
   });
 
   it('logging a check-in counts', () => {

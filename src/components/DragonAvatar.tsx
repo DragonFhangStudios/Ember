@@ -67,7 +67,7 @@ export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevel
           >
             <div className="bg-dragon-gold text-white px-6 py-2 rounded-full font-bold shadow-2xl border-2 border-white flex items-center gap-2">
               <Sparkles className="w-5 h-5" />
-              <span className="serif tracking-widest uppercase">Growth Milestone!</span>
+              <span className="serif tracking-widest uppercase">Evolution Milestone!</span>
               <Sparkles className="w-5 h-5" />
             </div>
           </motion.div>

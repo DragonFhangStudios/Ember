@@ -11,10 +11,11 @@ interface StatsHeaderProps {
 export function StatsHeader({ userState }: StatsHeaderProps) {
   const bond = bondLevel(bondTotal(userState.bond));
   const evolution = evolutionProgress(userState.stage, activeDaysOf(userState));
+  // Progress within the current stage, so the label and the bar agree.
   const from = activeDaysThreshold(evolution.stage);
-  const evolutionPercent = evolution.next
-    ? Math.min(100, Math.max(0, ((evolution.activeDays - from) / (evolution.next.at - from)) * 100))
-    : 100;
+  const stageDays = evolution.next ? evolution.next.at - from : 0;
+  const daysIntoStage = evolution.next ? Math.min(stageDays, Math.max(0, evolution.activeDays - from)) : 0;
+  const evolutionPercent = evolution.next ? (daysIntoStage / stageDays) * 100 : 100;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -70,11 +71,11 @@ export function StatsHeader({ userState }: StatsHeaderProps) {
           <div className="flex items-center gap-1">
             <TrendingUp className="w-3 h-3 text-[var(--text-secondary)]" />
             <p className="text-[10px] uppercase tracking-wider font-semibold text-[var(--text-secondary)]">
-              {evolution.next ? `Evolution: ${evolution.stage} → ${evolution.next.stage}` : `Evolution: ${evolution.stage} 🐉`}
+              {evolution.next ? `${evolution.stage} → ${evolution.next.stage}` : `${evolution.stage} 🐉`}
             </p>
           </div>
           <p className="text-xs font-bold text-[var(--text-primary)]">
-            {evolution.next ? `${evolution.activeDays} / ${evolution.next.at} active days` : `${evolution.activeDays} active days`}
+            {evolution.next ? `${daysIntoStage} / ${stageDays} days` : 'Fully evolved'}
           </p>
         </div>
         <div className="w-full bg-dragon-warm/20 h-1.5 rounded-full overflow-hidden">
@@ -84,6 +85,9 @@ export function StatsHeader({ userState }: StatsHeaderProps) {
             className="h-full bg-heat-gradient"
           />
         </div>
+        <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
+          {evolution.activeDays} lifetime active {evolution.activeDays === 1 ? 'day' : 'days'}
+        </p>
       </div>
     </div>
   );

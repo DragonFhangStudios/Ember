@@ -215,6 +215,24 @@ describe('Bond', () => {
   });
 });
 
+describe('player-facing wording', () => {
+  it('reward messages say Bond, never growth', () => {
+    const custom = { id: 'c', title: 'c', description: '', type: 'custom', completed: false, points: 10, isDaily: true, isCustom: true, progress: 0, target: 1 };
+    let state: UserState = { ...createInitialState(at(1)), quests: [...createInitialState(at(1)).quests, ...[1, 2, 3].map(i => ({ ...custom, id: `c${i}` }))] };
+    const messages: (string | undefined)[] = [];
+    const run = (r: { state: UserState; message?: string }) => { messages.push(r.message); state = r.state; };
+    for (let i = 0; i < 5; i++) run(completeFocusSession(state, at(1)));
+    for (const id of ['c1', 'c2', 'c3']) run(advanceQuest(state, id, at(1)));
+    run(petDragon(state, at(1)));
+    run(feedDragon(state, at(1)));
+    run(logCheckIn(state, 3, 3, at(1)));
+    run(logCheckIn(state, 4, 4, at(1)));
+    const shown = messages.filter((m): m is string => !!m);
+    expect(shown.some(m => /Bond/.test(m))).toBe(true);
+    expect(shown.filter(m => /growth/i.test(m))).toEqual([]);
+  });
+});
+
 describe('lifetime milestone badges', () => {
   it.each([[100, 'badge_days_100'], [200, 'badge_days_200'], [365, 'badge_days_365']])('unlocks at %i active days', (n, id) => {
     const days = Array.from({ length: n }, (_, i) => isoDay(new Date(2025, 0, 1 + i)));
@@ -269,9 +287,37 @@ describe('migrating saves from before active days (v5 → v6)', () => {
     expect(reload(legacySave({ stage: 'Egg' }), at(20)).activity.legacy).toEqual([]);
   });
 
-  it('an activity already done on the upgrade day still counts on top of the credit', () => {
-    const state = reload(legacySave({ stage: 'Drake', growthProgress: 80, lastActiveDay: dayKey(at(20)) }), at(20, 15));
+  it('an activity already done on the upgrade day is not counted again on top of the credit', () => {
+    let state = reload(legacySave({ stage: 'Drake', growthProgress: 80, lastActiveDay: dayKey(at(20)) }), at(20, 15));
+    expect(state.stage).toBe(DragonStage.DRAKE);
+    expect(state.activity.days).toContain('2026-10-20'); // genuine activity stays recorded
+    expect(activeDaysOf(state)).toBe(24); // but upgrading adds no extra day
+    state = advanceQuest(state, 'q1', at(20, 16)).state; // more activity the same day
+    expect(activeDaysOf(state)).toBe(24);
+    state = checkIn(state, at(21)); // a genuinely new day counts once
     expect(activeDaysOf(state)).toBe(25);
+  });
+
+  it('a check-in logged before upgrading on the upgrade day is absorbed the same way', () => {
+    const save = legacySave({ stage: 'Fledgling', growthProgress: 50, symptomLogs: [{ date: at(20, 8).toISOString(), energy: 3, mood: 3 }] });
+    expect(activeDaysOf(reload(save, at(20, 15)))).toBe(8);
+  });
+
+  it('an activity first completed after upgrading counts once, even on the upgrade day', () => {
+    let state = reload(legacySave({ stage: 'Drake', growthProgress: 80, lastActiveDay: dayKey(at(19)) }), at(20, 9));
+    expect(activeDaysOf(state)).toBe(24);
+    state = advanceQuest(state, 'q1', at(20, 10)).state;
+    expect(activeDaysOf(state)).toBe(25);
+    state = logCheckIn(state, 3, 3, at(20, 18)).state;
+    expect(activeDaysOf(state)).toBe(25);
+  });
+
+  it('handles an upgrade-day activity at a month boundary', () => {
+    let state = reload(legacySave({ stage: 'Hatchling', growthProgress: 25, lastActiveDay: dayKey(at(31, 23)) }), at(31, 23, 30));
+    expect(state.activity.legacy).toEqual([{ floor: 2, before: '2026-11-01' }]);
+    expect(activeDaysOf(state)).toBe(2);
+    state = checkIn(state, new Date(2026, 10, 1, 0, 5));
+    expect(activeDaysOf(state)).toBe(3);
   });
 
   it('progress continues normally after migrating', () => {
@@ -352,6 +398,22 @@ describe('multi-device merge (future sync)', () => {
     for (const d of [20, 21, 22]) a = checkIn(a, at(d)); // phone
     for (const d of [22, 23]) b = checkIn(b, at(d)); // desktop (overlaps on the 22nd)
     expect(lifetimeActiveDays(mergeActivity(a.activity, b.activity))).toBe(8 + 4);
+  });
+
+  it('copies upgraded on the same day, one with pre-upgrade activity and one with new activity, merge consistently', () => {
+    const old = legacySave({ stage: 'Drake', growthProgress: 80, lastActiveDay: dayKey(at(19)) });
+    // Copy A was used in the old app earlier on the 20th, then upgraded.
+    const a = reload({ ...old, lastActiveDay: dayKey(at(20)) }, at(20, 12));
+    // Copy B upgraded first thing on the 20th, then did its first activity.
+    const b = checkIn(reload(old, at(20, 8)), at(20, 9));
+    expect(activeDaysOf(a)).toBe(24);
+    expect(activeDaysOf(b)).toBe(25);
+    // The 20th is one calendar day: merged count never exceeds the larger copy.
+    const merged = mergeActivity(a.activity, b.activity);
+    expect(lifetimeActiveDays(merged)).toBe(25);
+    expect(lifetimeActiveDays(mergeActivity(merged, a.activity))).toBe(25);
+    // Two copies that both had the pre-upgrade activity stay at 24.
+    expect(lifetimeActiveDays(mergeActivity(a.activity, reload({ ...old, lastActiveDay: dayKey(at(20)) }, at(20, 18)).activity))).toBe(24);
   });
 
   it('Bond earned independently on two offline devices is all kept', () => {

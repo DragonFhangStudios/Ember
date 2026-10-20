@@ -109,8 +109,8 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
       </p>
       <p className="mt-2 text-xs text-dragon-muted">
         {rewardsLeft > 0
-          ? `${rewardsLeft} growth-earning ${rewardsLeft === 1 ? 'session' : 'sessions'} left today`
-          : "Today's focus growth is complete. Sessions still count toward your quest!"}
+          ? `${rewardsLeft} Bond-earning ${rewardsLeft === 1 ? 'session' : 'sessions'} left today`
+          : "Today's focus Bond is complete. Sessions still count toward your quest!"}
       </p>
     </div>
   );

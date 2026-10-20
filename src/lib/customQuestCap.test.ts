@@ -66,7 +66,7 @@ describe('custom quest growth cap', () => {
     expect(bondTotal(state.bond)).toBe(30 + 1);
     expect(state.daily.customQuestGrowth).toBe(CAP);
     expect(state.energy).toBe(60);
-    expect(message).toMatch(/today's growth from custom quests/);
+    expect(message).toMatch(/today's Bond from custom quests/);
   });
 
   it('shows no cap message while under the cap', () => {

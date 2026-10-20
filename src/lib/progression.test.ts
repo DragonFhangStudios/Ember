@@ -171,7 +171,7 @@ describe('daily reward limits', () => {
     expect(bondTotal(state.bond)).toBe(30 + DAILY_LIMITS.focusRewards * REWARDS.focus.growth);
     expect(state.energy).toBe(50 + DAILY_LIMITS.focusRewards * REWARDS.focus.energy);
     expect(state.quests.find(q => q.type === 'focus')?.completed).toBe(true);
-    expect(lastMessage).toMatch(/focus growth/);
+    expect(lastMessage).toMatch(/focus Bond/);
 
     state = completeFocusSession(state, day(21)).state;
     expect(state.daily.focusRewards).toBe(1);
