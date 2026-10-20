@@ -8,7 +8,9 @@ Ember is a wellness companion. Caring for Ember (feeding, warmth, affection, res
 
 ## Principles
 
-1. **Progress is permanent.** Growth, evolution stages, badges, cosmetics, and earned currency are never taken away, not for inactivity and not for missed days.
+1. **Progress is permanent.** Lifetime progress (growth, evolution stages, badges, cosmetics, and best streak) is never taken away for inactivity or missed days.
+   - **Earned currency is never confiscated.** Players may *voluntarily* spend it (for example, in the shop), but inactivity never removes it.
+   - **Only the current streak can reset** after a missed day. Lifetime achievements, such as best streak and streak badges, always remain.
 2. **Showing up counts.** One meaningful activity (a quest, a focus session, a check-in) is enough to count a day. Perfection is never required.
 3. **Absence is rest, not neglect.** When a player is away, Ember naps peacefully. Ember is never shown sick, sad, starving, or suffering because of the player.
 4. **Returning is celebrated.** Coming back after a break is met with a warm welcome, never a reminder of what was missed.

@@ -4,7 +4,7 @@
 
 # Ember 🐉
 
-A wellness companion dragon for habit tracking.
+Ember is a gentle wellness companion: a little dragon you care for while learning to care for yourself. Small acts of self-care (a glass of water, a focus session, a moment to check in with how you feel) help Ember grow, and Ember is always happy to see you, especially after a hard day.
 
 > **"If you can take care of Ember, you can learn to take care of yourself."**
 >
