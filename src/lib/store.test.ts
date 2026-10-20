@@ -5,7 +5,7 @@ import { bondTotal } from './evolution';
 import { FOCUS_DURATION_MS } from './focusTimer';
 import { pauseFocus, resetFocus, settle, startFocus } from './focusSession';
 import { REWARDS, advanceQuest, createInitialState, migrateState } from './progression';
-import { EmberStore, StoreUnavailableError, openStore } from './store';
+import { EmberStore, LegacySaveUnreadableError, StoreUnavailableError, openStore } from './store';
 
 // fake-indexeddb implements IndexedDB's transaction scheduling: readwrite
 // transactions on the same store are serialized across connections, like
@@ -60,13 +60,96 @@ describe('opening and migrating', () => {
     opened.forEach(o => o.store.close());
   });
 
-  it('starts fresh from a corrupt or unreadable legacy save without failing', async () => {
+  it('a genuinely absent legacy save starts a new save', async () => {
+    const h = harness(null);
+    const { store, initial } = await h.open();
+    expect(initial.changed).toBe(true);
+    expect(initial.state.goldenScales).toBe(0);
+    store.close();
+  });
+
+  it.each([
+    ['storage access fails', new DOMException('The operation is insecure.', 'SecurityError')],
+    ['the legacy save is corrupt', new SyntaxError('Unexpected token')],
+  ])('when %s, nothing is created and the error is surfaced', async (_case, failure) => {
     const h = harness();
     h.readLegacy.mockImplementation(() => {
-      throw new SyntaxError('bad json');
+      throw failure;
+    });
+    const error = await h.open().catch(e => e);
+    expect(error).toBeInstanceOf(LegacySaveUnreadableError);
+    expect(error.cause).toBe(failure);
+    // No authoritative save was written in its place.
+    const dbs = await h.idb.databases();
+    const peek = await new Promise<unknown>((resolve, reject) => {
+      const r = h.idb.open(h.dbName);
+      r.onsuccess = () => {
+        const g = r.result.transaction('saves').objectStore('saves').get('player');
+        g.onsuccess = () => {
+          r.result.close();
+          resolve(g.result);
+        };
+      };
+      r.onerror = () => reject(r.error);
+    });
+    expect(dbs.some(d => d.name === h.dbName)).toBe(true);
+    expect(peek).toBeUndefined();
+  });
+
+  it('a retry after a transient failure migrates the real legacy save', async () => {
+    const h = harness();
+    h.readLegacy.mockImplementationOnce(() => {
+      throw new DOMException('busy', 'InvalidStateError');
+    });
+    await expect(h.open()).rejects.toBeInstanceOf(LegacySaveUnreadableError);
+    h.readLegacy.mockImplementation(() => ({ ...createInitialState(NOW), goldenScales: 88, bond: { legacy: 40 } }));
+    const { store, initial } = await h.open();
+    expect(initial.state.goldenScales).toBe(88);
+    expect(bondTotal(initial.state.bond)).toBe(40);
+    store.close();
+  });
+
+  it('several tabs hitting a failed read all fail safely, then one retry migrates once', async () => {
+    const h = harness();
+    h.readLegacy.mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    const results = await Promise.allSettled([h.open(), h.open(), h.open()]);
+    expect(results.every(r => r.status === 'rejected' && r.reason instanceof LegacySaveUnreadableError)).toBe(true);
+    h.readLegacy.mockReset();
+    h.readLegacy.mockImplementation(() => ({ ...createInitialState(NOW), goldenScales: 5 }));
+    const opened = await Promise.all([h.open(), h.open()]);
+    expect(opened.filter(o => o.initial.changed)).toHaveLength(1);
+    expect(opened.every(o => o.initial.state.goldenScales === 5)).toBe(true);
+    opened.forEach(o => o.store.close());
+  });
+
+  it('starting fresh happens only by explicit choice, and is recorded', async () => {
+    const h = harness();
+    h.readLegacy.mockImplementation(() => {
+      throw new SyntaxError('corrupt');
+    });
+    await expect(h.open()).rejects.toBeInstanceOf(LegacySaveUnreadableError);
+    const { store, initial } = await h.open({ startFreshIfLegacyUnreadable: true });
+    expect(initial.changed).toBe(true);
+    expect(initial.state.goldenScales).toBe(0);
+    store.close();
+    // Later opens use the new save and never try the unreadable legacy save again.
+    h.readLegacy.mockClear();
+    const again = await h.open();
+    expect(h.readLegacy).not.toHaveBeenCalled();
+    expect(again.initial.changed).toBe(false);
+    again.store.close();
+  });
+
+  it('a failing legacy read never matters once a save exists', async () => {
+    const h = harness({ ...createInitialState(NOW), goldenScales: 3 });
+    (await h.open()).store.close();
+    h.readLegacy.mockImplementation(() => {
+      throw new Error('should not be read');
     });
     const { store, initial } = await h.open();
-    expect(initial.state.goldenScales).toBe(0);
+    expect(initial.state.goldenScales).toBe(3);
     store.close();
   });
 
@@ -205,6 +288,26 @@ describe('commit semantics', () => {
     expect(heard).toEqual([42]);
     a.store.close();
     b.store.close();
+  });
+});
+
+describe('database replacement', () => {
+  it('a deleted database notifies this tab, and a reopened store starts again at revision 1', async () => {
+    const h = harness();
+    const onVersionChange = vi.fn();
+    const first = await h.open({ onVersionChange });
+    for (let i = 0; i < 5; i++) await first.store.update(s => ({ ...s, energy: s.energy + 1 }));
+    expect((await first.store.read()).rev).toBe(6);
+    await new Promise<void>((resolve, reject) => {
+      const del = h.idb.deleteDatabase(h.dbName);
+      del.onsuccess = () => resolve();
+      del.onerror = () => reject(del.error);
+      del.onblocked = () => reject(new Error('blocked: the open tab did not close'));
+    });
+    expect(onVersionChange).toHaveBeenCalled();
+    const second = await h.open();
+    expect(second.initial.rev).toBe(1); // a new store's revisions restart: the UI must not compare across stores
+    second.store.close();
   });
 });
 

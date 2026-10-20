@@ -21,6 +21,8 @@ export interface SaveRecord<T> {
   state: T;
   rev: number; // increments on every committed change
   migratedFromLocalStorage?: boolean;
+  /** Set when the player chose to start fresh because the legacy save couldn't be read. */
+  legacySaveUnreadable?: boolean;
 }
 
 export interface StoreResult<T> {
@@ -49,12 +51,32 @@ export class StoreUnavailableError extends Error {
   }
 }
 
+/**
+ * A legacy save exists but couldn't be read (storage access failed or the data
+ * is corrupt). Nothing was created or changed; the legacy save is untouched.
+ */
+export class LegacySaveUnreadableError extends Error {
+  constructor(readonly cause?: unknown) {
+    super('The existing Ember save could not be read.');
+    this.name = 'LegacySaveUnreadableError';
+  }
+}
+
 export interface OpenStoreOptions<T> {
   /** Normalizes any stored or legacy value into the current state shape. Pure and synchronous. */
   migrate: (raw: unknown) => T;
-  /** Reads the legacy localStorage save (raw JSON value), or null. Called synchronously, read-only. */
+  /**
+   * Reads the legacy localStorage save. Called synchronously and read-only, and
+   * only when no IndexedDB save exists yet. Return null/undefined when there is
+   * genuinely no legacy save; THROW when one may exist but can't be read.
+   */
   readLegacy: () => unknown;
-  /** Called if this tab must close the database (another tab is upgrading it). */
+  /**
+   * Explicit player choice: if the legacy save can't be read, start a new save
+   * anyway (the legacy save is still left untouched). Never set automatically.
+   */
+  startFreshIfLegacyUnreadable?: boolean;
+  /** Called if this tab loses its connection (another tab upgrades or deletes the database, or the browser closes it). */
   onVersionChange?: () => void;
   /** Called while opening is blocked by another tab holding an older version. */
   onBlocked?: () => void;
@@ -97,6 +119,8 @@ export async function openStore<T>(options: OpenStoreOptions<T>): Promise<{ stor
     db.close();
     options.onVersionChange?.();
   };
+  // The browser closed the connection itself (e.g. site data cleared).
+  db.onclose = () => options.onVersionChange?.();
 
   const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(`${CHANNEL}:${options.dbName ?? DB_NAME}`) : null;
 
@@ -146,18 +170,23 @@ export async function openStore<T>(options: OpenStoreOptions<T>): Promise<{ stor
   try {
     initialRecord = await transact('readwrite', stored => {
       if (stored && typeof stored === 'object' && 'state' in stored) return stored;
-      let legacy: unknown = null;
+      let legacy: unknown;
       try {
         legacy = options.readLegacy();
-      } catch {
-        legacy = null;
+      } catch (error) {
+        // Never let a failed read become a fresh authoritative save: abort
+        // (nothing is written) unless the player explicitly chose to start fresh.
+        if (!options.startFreshIfLegacyUnreadable) throw new LegacySaveUnreadableError(error);
+        created = true;
+        return { state: options.migrate(null), rev: 1, legacySaveUnreadable: true };
       }
       created = true;
-      return { state: options.migrate(legacy), rev: 1, migratedFromLocalStorage: legacy != null };
+      return { state: options.migrate(legacy ?? null), rev: 1, migratedFromLocalStorage: legacy != null };
     });
   } catch (error) {
     db.close();
     channel?.close();
+    if (error instanceof LegacySaveUnreadableError) throw error;
     throw new StoreUnavailableError('Could not read or create the Ember save.', error);
   }
 

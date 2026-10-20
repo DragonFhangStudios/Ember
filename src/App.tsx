@@ -16,7 +16,8 @@ import {
   petDragon,
 } from './lib/progression';
 import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/focusSession';
-import { EmberStore, StoreResult, openStore } from './lib/store';
+import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from './lib/store';
+import { createRevisionGate } from './lib/revisionGate';
 import { DragonAvatar } from './components/DragonAvatar';
 import { StatsHeader } from './components/StatsHeader';
 import { QuestItem } from './components/QuestItem';
@@ -29,7 +30,7 @@ import { Badges } from './components/Badges';
 import { CustomQuestForm } from './components/CustomQuestForm';
 import { BondingActions } from './components/BondingActions';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
-import { SaveStatusBanner } from './components/SaveStatusBanner';
+import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
 import { cn } from './lib/utils';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
@@ -51,9 +52,19 @@ function getDeviceId(): string {
   }
 }
 
+/**
+ * The pre-IndexedDB save: null only when there genuinely is none. Throws when
+ * storage can't be read or the data is corrupt, so a failed read is never
+ * mistaken for "no save" (see openStore).
+ */
 function readLegacySave(): unknown {
   const saved = localStorage.getItem(STORAGE_KEY);
-  return saved ? JSON.parse(saved) : null;
+  if (saved === null) return null;
+  const parsed: unknown = JSON.parse(saved);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('The saved Ember data is not a save object.');
+  }
+  return parsed;
 }
 
 function newFocusSessionId(): string {
@@ -65,16 +76,22 @@ function newFocusSessionId(): string {
 const DAY_CHECK_INTERVAL_MS = 30_000;
 const FOCUS_TICK_MS = 250;
 
-/** 'preview' = saving isn't possible right now; nothing can change until it is. */
-type SaveMode = 'loading' | 'ready' | 'preview';
+/**
+ * 'preview' = saving isn't possible right now; nothing can change until it is.
+ * 'recovery' = an existing save couldn't be read; nothing was created or changed.
+ */
+type SaveMode = 'loading' | 'ready' | 'preview' | 'recovery';
 
 export default function App() {
   const [state, setState] = useState<UserState | null>(null);
   const [saveMode, setSaveMode] = useState<SaveMode>('loading');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [openAttempt, setOpenAttempt] = useState(0);
+  const [startFresh, setStartFresh] = useState(false);
   const storeRef = useRef<EmberStore<UserState> | null>(null);
-  const revRef = useRef(0);
+  // Which store instance (epoch) and revision the screen shows; see revisionGate.ts.
+  const gateRef = useRef(createRevisionGate());
+  const epochRef = useRef(0);
   const deviceIdRef = useRef(getDeviceId());
   const [activeTab, setActiveTab] = useState<'dashboard' | 'focus' | 'checkin' | 'wardrobe' | 'insights' | 'badges'>('dashboard');
   const [showCustomQuest, setShowCustomQuest] = useState(false);
@@ -97,11 +114,12 @@ export default function App() {
 
   const withDevice = (s: UserState): UserState => ({ ...s, deviceId: deviceIdRef.current });
 
-  // Shows a committed save, ignoring results older than what's already on screen.
-  const show = useCallback((result: StoreResult<UserState>) => {
-    if (result.rev < revRef.current) return;
-    revRef.current = result.rev;
+  // Shows a committed save from the current store instance, ignoring older
+  // revisions and anything from a store that has since been replaced.
+  const show = useCallback((epoch: number, result: StoreResult<UserState>) => {
+    if (!gateRef.current.accept(epoch, result.rev)) return false;
     setState({ ...result.state, deviceId: deviceIdRef.current });
+    return true;
   }, []);
 
   /**
@@ -115,6 +133,7 @@ export default function App() {
       if (action && saveModeRef.current === 'preview') showFlavorText("Preview mode: that wasn't saved.");
       return Promise.resolve(null);
     }
+    const epoch = epochRef.current;
     const now = new Date();
     let messages: string[] = [];
     return store
@@ -134,7 +153,7 @@ export default function App() {
       })
       .then(
         result => {
-          show(result);
+          if (!show(epoch, result)) return null; // a replaced store's late result
           setSaveError(null);
           if (messages.length) showFlavorText(messages.join(' '));
           return result;
@@ -154,12 +173,17 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     let unsubscribe = () => {};
+    let epoch = 0;
+    const gate = gateRef.current;
     setSaveMode('loading');
     openStore<UserState>({
       migrate: raw => migrateState(raw, new Date()),
       readLegacy: readLegacySave,
+      startFreshIfLegacyUnreadable: startFresh,
       onBlocked: () => setSaveError('Ember is updating its save. Please close other Ember tabs to continue.'),
       onVersionChange: () => {
+        if (cancelled || epoch !== epochRef.current) return;
+        gate.retire(epoch);
         storeRef.current = null;
         setSaveMode('preview');
       },
@@ -169,34 +193,42 @@ export default function App() {
           store.close();
           return;
         }
+        epoch = gate.begin();
+        epochRef.current = epoch;
         storeRef.current = store;
         setSaveError(null);
-        show(initial);
+        setStartFresh(false);
+        show(epoch, initial);
         setSaveMode('ready');
-        unsubscribe = store.subscribe(show);
+        unsubscribe = store.subscribe(result => show(epoch, result));
         commit();
       },
       error => {
         if (cancelled) return;
         console.error('Ember save store unavailable', error);
-        // Read-only preview of whatever save we can still read.
-        let raw: unknown = null;
-        try {
-          raw = readLegacySave();
-        } catch {
-          raw = null;
+        if (error instanceof LegacySaveUnreadableError) {
+          // An existing save couldn't be read. Nothing was created or changed.
+          setState(null);
+          setSaveMode('recovery');
+          return;
         }
-        setState(withDevice(migrateState(raw, new Date())));
+        // Read-only preview of whatever save can still be read (nothing if it can't).
+        try {
+          setState(withDevice(migrateState(readLegacySave(), new Date())));
+        } catch {
+          setState(null);
+        }
         setSaveMode('preview');
       },
     );
     return () => {
       cancelled = true;
       unsubscribe();
+      if (epoch) gate.retire(epoch);
       storeRef.current?.close();
       storeRef.current = null;
     };
-  }, [openAttempt, commit, show]);
+  }, [openAttempt, startFresh, commit, show]);
 
   const isPreview = saveMode === 'preview';
 
@@ -340,8 +372,16 @@ export default function App() {
 
   if (!state) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-app-custom">
-        <p className="serif text-xl text-dragon-muted">{saveError ?? 'Waking Ember…'}</p>
+      <div className="min-h-screen flex items-center justify-center bg-app-custom px-6">
+        <div className="max-w-md w-full">
+          {saveMode === 'recovery' ? (
+            <RecoveryNotice onRetry={() => setOpenAttempt(n => n + 1)} onStartFresh={() => setStartFresh(true)} />
+          ) : saveMode === 'preview' ? (
+            <SaveStatusBanner preview error={null} onRetry={() => setOpenAttempt(n => n + 1)} onDismissError={() => {}} />
+          ) : (
+            <p className="serif text-xl text-dragon-muted text-center">{saveError ?? 'Waking Ember…'}</p>
+          )}
+        </div>
       </div>
     );
   }
