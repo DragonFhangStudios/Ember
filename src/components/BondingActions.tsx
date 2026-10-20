@@ -10,9 +10,10 @@ interface BondingActionsProps {
   lastPetAt?: string;
   lastIncubateAt?: string;
   stage: DragonStage;
+  feedsLeft: number;
 }
 
-export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage }: BondingActionsProps) {
+export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage, feedsLeft }: BondingActionsProps) {
   const isEgg = stage === DragonStage.EGG;
   const [petTimeLeft, setPetTimeLeft] = useState(0);
   const [incubateTimeLeft, setIncubateTimeLeft] = useState(0);
@@ -41,6 +42,7 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
 
   const canPet = petTimeLeft === 0;
   const canIncubate = incubateTimeLeft === 0;
+  const canFeed = isEgg ? canIncubate : feedsLeft > 0;
 
   return (
     <div className="flex flex-col items-center gap-4 mt-8">
@@ -66,23 +68,25 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
         </motion.button>
 
         <motion.button
-          whileHover={canIncubate ? { scale: 1.05 } : {}}
-          whileTap={canIncubate ? { scale: 0.95 } : {}}
+          whileHover={canFeed ? { scale: 1.05 } : {}}
+          whileTap={canFeed ? { scale: 0.95 } : {}}
           onClick={onFeed}
-          disabled={isEgg && !canIncubate}
+          disabled={!canFeed}
           className={cn(
             "flex items-center gap-2 px-6 py-3 rounded-2xl text-white font-bold transition-all shadow-lg",
-            isEgg 
-              ? (canIncubate ? "bg-dragon-ember hover:bg-dragon-ember/90 shadow-dragon-ember/20" : "bg-dragon-warm text-dragon-muted cursor-not-allowed opacity-80")
-              : "bg-dragon-gold hover:bg-dragon-gold/90 shadow-dragon-gold/20"
+            !canFeed
+              ? "bg-dragon-warm text-dragon-muted cursor-not-allowed opacity-80"
+              : isEgg
+                ? "bg-dragon-ember hover:bg-dragon-ember/90 shadow-dragon-ember/20"
+                : "bg-dragon-gold hover:bg-dragon-gold/90 shadow-dragon-gold/20"
           )}
         >
-          {isEgg ? (canIncubate ? <Flame className="w-5 h-5" /> : <Clock className="w-5 h-5" />) : <Utensils className="w-5 h-5" />}
+          {!canFeed ? <Clock className="w-5 h-5" /> : isEgg ? <Flame className="w-5 h-5" /> : <Utensils className="w-5 h-5" />}
           {isEgg ? "Incubate" : "Feed Ember"}
         </motion.button>
       </div>
       
-      {(!canPet || (isEgg && !canIncubate)) && (
+      {(!canPet || !canFeed) && (
         <motion.p 
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

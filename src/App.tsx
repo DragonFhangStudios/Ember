@@ -1,8 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, TrendingUp, Trophy, Plus, ChevronDown, Palette } from 'lucide-react';
-import { UserState, DragonStage, Quest, CosmeticItem, Badge, CustomQuestType } from './types';
-import { INITIAL_QUESTS, BADGES, COSMETICS } from './constants';
+import { UserState, DragonStage, Quest, CosmeticItem, CustomQuestType } from './types';
+import {
+  ActionResult,
+  DAILY_LIMITS,
+  advanceQuest,
+  completeFocusSession,
+  createInitialState,
+  dailyFor,
+  evaluateBadges,
+  feedDragon,
+  hasCheckedInToday,
+  logCheckIn,
+  migrateState,
+  petDragon,
+  rollOverDay,
+} from './lib/progression';
+import { useFocusTimer } from './hooks/useFocusTimer';
 import { DragonAvatar } from './components/DragonAvatar';
 import { StatsHeader } from './components/StatsHeader';
 import { QuestItem } from './components/QuestItem';
@@ -18,17 +33,54 @@ import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { cn } from './lib/utils';
 
 const STORAGE_KEY = 'ember_user_state_v2';
+const DAY_CHECK_INTERVAL_MS = 30_000;
+
+function loadState(now: Date): UserState {
+  let raw: unknown = null;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    raw = saved ? JSON.parse(saved) : null;
+  } catch {
+    raw = null;
+  }
+  return evaluateBadges(rollOverDay(migrateState(raw, now), now), now);
+}
 
 export default function App() {
   const [state, setState] = useState<UserState | null>(null);
+  const stateRef = useRef<UserState | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'focus' | 'checkin' | 'wardrobe' | 'insights' | 'badges'>('dashboard');
-  const [isFocusActive, setIsFocusActive] = useState(false);
   const [showCustomQuest, setShowCustomQuest] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isPetted, setIsPetted] = useState(false);
   const [petFlavorText, setPetFlavorText] = useState<string | null>(null);
+  const flavorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isLevelingUp, setIsLevelingUp] = useState(false);
   const prevStageRef = useRef<DragonStage | null>(null);
+
+  const showFlavorText = (text: string, durationMs = 3000) => {
+    setPetFlavorText(text);
+    if (flavorTimeoutRef.current) clearTimeout(flavorTimeoutRef.current);
+    flavorTimeoutRef.current = setTimeout(() => setPetFlavorText(null), durationMs);
+  };
+
+  // Applies a pure progression action to the latest state. The ref is updated
+  // immediately so rapid clicks can't apply the same reward twice.
+  const runAction = (action: (current: UserState, now: Date) => ActionResult) => {
+    const current = stateRef.current;
+    if (!current) return;
+    const now = new Date();
+    const { state: next, message } = action(current, now);
+    const withBadges = evaluateBadges(next, now);
+    stateRef.current = withBadges;
+    setState(withBadges);
+    if (message) showFlavorText(message);
+  };
+
+  const update = (fn: (current: UserState) => UserState) => runAction(current => ({ state: fn(current) }));
+
+  const focus = useFocusTimer(() => runAction(completeFocusSession));
+  const isFocusActive = focus.timer.status === 'running';
 
   // Apply dark mode class
   useEffect(() => {
@@ -50,366 +102,97 @@ export default function App() {
     }
   }, [state?.stage]);
 
-  // Load state from localStorage
+  // Load (and migrate) saved state
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved) as UserState;
-      if (!parsed.customQuestTypes) parsed.customQuestTypes = [];
-      if (parsed.currentStreak === undefined) parsed.currentStreak = 0;
-      if (parsed.bestStreak === undefined) parsed.bestStreak = 0;
-      
-      const initializedQuests = parsed.quests.map(q => ({
-        ...q,
-        progress: q.progress ?? (q.completed ? (q.target ?? 1) : 0),
-        target: q.target ?? 1,
-      }));
+    const loaded = loadState(new Date());
+    stateRef.current = loaded;
+    setState(loaded);
+  }, []);
 
-      // Check for daily reset
-      const today = new Date().toDateString();
-      if (parsed.lastLogin !== today) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toDateString();
-        
-        const allCompletedYesterday = initializedQuests.every(q => q.completed);
-        let newStreak = parsed.currentStreak;
-
-        if (parsed.lastLogin === yesterdayStr) {
-          if (allCompletedYesterday) {
-            newStreak += 1;
-          } else {
-            newStreak = 0;
-          }
-        } else {
-          // Missed more than one day
-          newStreak = 0;
-        }
-
-        // Daily Ritual Check: If missed petting or incubating yesterday, reset growth
-        const lastPet = parsed.lastPetAt ? new Date(parsed.lastPetAt).toDateString() : '';
-        const lastIncubate = parsed.lastIncubateAt ? new Date(parsed.lastIncubateAt).toDateString() : '';
-        
-        let newGrowth = parsed.growthProgress;
-        if (lastPet !== yesterdayStr || lastIncubate !== yesterdayStr) {
-          // Reset growth if ritual was missed
-          newGrowth = 0;
-        }
-
-        const resetQuests = initializedQuests.map(q => q.isDaily ? { ...q, completed: false, progress: 0 } : q);
-        
-        const newState = {
-          ...parsed,
-          quests: resetQuests,
-          lastLogin: today,
-          isNapping: !allCompletedYesterday,
-          energy: Math.max(0, parsed.energy - 10),
-          currentStreak: newStreak,
-          bestStreak: Math.max(parsed.bestStreak, newStreak),
-          growthProgress: newGrowth,
-          stage: DragonStage.EGG, // Softlock to Egg
-        };
-        setState(newState);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
-      } else {
-        setState({ ...parsed, quests: initializedQuests });
-      }
-    } else {
-      const initialState: UserState = {
-        dragonName: 'Ember',
-        stage: DragonStage.EGG,
-        energy: 50,
-        goldenScales: 0,
-        growthProgress: 0,
-        lastLogin: new Date().toDateString(),
-        isNapping: false,
-        quests: INITIAL_QUESTS,
-        symptomLogs: [],
-        inventory: [],
-        equipped: {},
-        badges: BADGES,
-        petCount: 0,
-        customQuestTypes: [],
-        currentStreak: 0,
-        bestStreak: 0,
-      };
-      setState(initialState);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
-    }
+  // Start a new day if the app is left open past midnight
+  useEffect(() => {
+    const checkDay = () => update(current => rollOverDay(current, new Date()));
+    const interval = setInterval(checkDay, DAY_CHECK_INTERVAL_MS);
+    document.addEventListener('visibilitychange', checkDay);
+    window.addEventListener('focus', checkDay);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', checkDay);
+      window.removeEventListener('focus', checkDay);
+    };
   }, []);
 
   useEffect(() => {
     if (state) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      checkBadges(state);
     }
   }, [state]);
 
-  const checkBadges = (currentState: UserState) => {
-    let updated = false;
-    const newBadges = currentState.badges.map(badge => {
-      if (badge.unlockedAt) return badge;
-
-      let unlocked = false;
-      if (badge.id === 'badge_hatch' && currentState.stage !== DragonStage.EGG) unlocked = true;
-      if (badge.id === 'badge_pet_10' && currentState.petCount >= 10) unlocked = true;
-      if (badge.id === 'badge_streak_3' && currentState.currentStreak >= 3) unlocked = true;
-      if (badge.id === 'badge_streak_7' && currentState.currentStreak >= 7) unlocked = true;
-      if (badge.id === 'badge_focus_5') {
-        const focusQuestsDone = currentState.quests.filter(q => q.type === 'focus' && q.completed).length;
-        // This is tricky because we reset daily. We might need a totalFocusCount in state.
-        // For now, let's just check if they've done it today as a placeholder or add a counter.
-      }
-
-      if (unlocked) {
-        updated = true;
-        return { ...badge, unlockedAt: new Date().toISOString() };
-      }
-      return badge;
-    });
-
-    if (updated) {
-      setState(prev => prev ? { ...prev, badges: newBadges } : null);
-    }
-  };
-
   const handleUpdateQuestProgress = (id: string, increment: number = 1) => {
-    if (!state) return;
-    const quest = state.quests.find(q => q.id === id);
-    if (!quest || quest.completed) return;
-
-    const newProgress = Math.min(quest.target, quest.progress + increment);
-    const isNowCompleted = newProgress === quest.target;
-    
-    const pointsPerStep = quest.points / quest.target;
-    const energyGain = pointsPerStep * increment;
-    
-    let scaleGain = 0;
-    let growthGain = (2 / quest.target) * increment;
-
-    if (quest.type === 'medication' && isNowCompleted) {
-      scaleGain = 10;
-      growthGain = 5;
-    }
-
-    const newQuests = state.quests.map(q => 
-      q.id === id ? { ...q, progress: newProgress, completed: isNowCompleted } : q
-    );
-
-    const newGrowth = state.growthProgress + growthGain;
-    let newStage = state.stage;
-    if (newGrowth >= 91) newStage = DragonStage.ANCIENT;
-    else if (newGrowth >= 66) newStage = DragonStage.DRAKE;
-    else if (newGrowth >= 41) newStage = DragonStage.FLEDGLING;
-    else if (newGrowth >= 21) newStage = DragonStage.HATCHLING;
-
-    setState({
-      ...state,
-      quests: newQuests,
-      energy: Math.round(state.energy + energyGain),
-      goldenScales: state.goldenScales + scaleGain,
-      growthProgress: Math.min(100, newGrowth),
-      stage: newStage,
-      isNapping: false,
-    });
+    runAction((current, now) => advanceQuest(current, id, now, increment));
   };
 
   const handleAddCustomQuest = (quest: Quest) => {
-    if (!state) return;
-    setState({
-      ...state,
-      quests: [...state.quests, quest]
-    });
+    update(current => ({ ...current, quests: [...current.quests, quest] }));
   };
 
   const handleAddCustomType = (type: CustomQuestType) => {
-    if (!state) return;
-    setState({
-      ...state,
-      customQuestTypes: [...state.customQuestTypes, type]
-    });
+    update(current => ({ ...current, customQuestTypes: [...current.customQuestTypes, type] }));
   };
 
   const handleBuyItem = (item: CosmeticItem) => {
-    if (!state || state.goldenScales < item.price) return;
-    setState({
-      ...state,
-      goldenScales: state.goldenScales - item.price,
-      inventory: [...state.inventory, item.id]
+    update(current => current.goldenScales < item.price ? current : {
+      ...current,
+      goldenScales: current.goldenScales - item.price,
+      inventory: [...current.inventory, item.id]
     });
   };
 
   const handleEquipItem = (item: CosmeticItem) => {
-    if (!state) return;
-    const isEquipped = state.equipped[item.category] === item.id;
-    setState({
-      ...state,
-      equipped: {
-        ...state.equipped,
-        [item.category]: isEquipped ? undefined : item.id
-      }
+    update(current => {
+      const isEquipped = current.equipped[item.category] === item.id;
+      return {
+        ...current,
+        equipped: {
+          ...current.equipped,
+          [item.category]: isEquipped ? undefined : item.id
+        }
+      };
     });
   };
 
   const handleUpdateTheme = (color: string) => {
-    if (!state) return;
-    setState({
-      ...state,
-      themeColor: color
-    });
+    update(current => ({ ...current, themeColor: color }));
   };
 
   const handleToggleDarkMode = () => {
-    if (!state) return;
-    setState({
-      ...state,
-      isDarkMode: !state.isDarkMode
-    });
+    update(current => ({ ...current, isDarkMode: !current.isDarkMode }));
   };
 
   const handleResetProgress = () => {
-    const initialState: UserState = {
-      dragonName: 'Ember',
-      stage: DragonStage.EGG,
-      energy: 50,
-      goldenScales: 0,
-      growthProgress: 0,
-      lastLogin: new Date().toDateString(),
-      isNapping: false,
-      quests: INITIAL_QUESTS,
-      symptomLogs: [],
-      inventory: [],
-      equipped: {},
-      badges: BADGES,
-      petCount: 0,
-      customQuestTypes: [],
-      currentStreak: 0,
-      bestStreak: 0,
-      isDarkMode: state?.isDarkMode,
-      themeColor: state?.themeColor
-    };
-    
-    setState(initialState);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
+    update(current => ({
+      ...createInitialState(new Date()),
+      isDarkMode: current.isDarkMode,
+      themeColor: current.themeColor
+    }));
+    focus.reset();
     setActiveTab('dashboard');
     setShowResetConfirm(false);
   };
 
   const handlePet = () => {
-    if (!state) return;
-    const today = new Date().toDateString();
-    const lastPet = state.lastPetAt ? new Date(state.lastPetAt).toDateString() : '';
-    
-    if (lastPet === today) {
-      setPetFlavorText("Ember is already clean and hydrated for today.");
-      setTimeout(() => setPetFlavorText(null), 3000);
-      return;
+    const petCountBefore = stateRef.current?.petCount;
+    runAction(petDragon);
+    if (stateRef.current?.petCount !== petCountBefore) {
+      setIsPetted(true);
+      setTimeout(() => setIsPetted(false), 1000);
     }
-
-    setIsPetted(true);
-    if (state.stage === DragonStage.EGG) {
-      setPetFlavorText("You carefully clean the shell and ensure it's hydrated. Ember pulses warmly.");
-    } else {
-      setPetFlavorText("Ember chirps happily and leans into your touch.");
-    }
-
-    setTimeout(() => {
-      setIsPetted(false);
-      setTimeout(() => setPetFlavorText(null), 2000);
-    }, 1000);
-
-    setState({
-      ...state,
-      petCount: state.petCount + 1,
-      lastPetAt: new Date().toISOString(),
-      energy: state.energy + 5,
-      growthProgress: Math.min(100, state.growthProgress + 2),
-      isNapping: false
-    });
   };
 
-  const handleFeed = () => {
-    if (!state) return;
-    const today = new Date().toDateString();
-    const lastIncubate = state.lastIncubateAt ? new Date(state.lastIncubateAt).toDateString() : '';
-
-    if (state.stage === DragonStage.EGG) {
-      if (lastIncubate === today) {
-        setPetFlavorText("The egg has already been incubated today. It's glowing steadily.");
-        setTimeout(() => setPetFlavorText(null), 3000);
-        return;
-      }
-
-      setPetFlavorText("You provide a spark of warmth. The egg glows with life!");
-      setTimeout(() => setPetFlavorText(null), 3000);
-
-      setState({
-        ...state,
-        lastIncubateAt: new Date().toISOString(),
-        energy: state.energy + 10,
-        growthProgress: Math.min(100, state.growthProgress + 5),
-        isNapping: false
-      });
-      return;
-    }
-
-    if (state.energy < 5) return;
-    const newGrowth = state.growthProgress + 0.5;
-    let newStage = state.stage;
-    
-    // Softlock: Don't go past Egg for now
-    if (state.stage === DragonStage.EGG) {
-      newStage = DragonStage.EGG;
-    } else {
-      if (newGrowth >= 91) newStage = DragonStage.ANCIENT;
-      else if (newGrowth >= 66) newStage = DragonStage.DRAKE;
-      else if (newGrowth >= 41) newStage = DragonStage.FLEDGLING;
-      else if (newGrowth >= 21) newStage = DragonStage.HATCHLING;
-    }
-
-    setState({
-      ...state,
-      energy: state.energy + 10,
-      growthProgress: Math.min(100, newGrowth),
-      stage: newStage,
-      isNapping: false
-    });
-  };
-
-  const handleFocusComplete = (points: number) => {
-    if (!state) return;
-    const newQuests = state.quests.map(q => 
-      q.type === 'focus' ? { ...q, progress: q.target, completed: true } : q
-    );
-
-    setState({
-      ...state,
-      quests: newQuests,
-      energy: state.energy + points,
-      growthProgress: Math.min(100, state.growthProgress + 3),
-      isNapping: false,
-    });
-  };
+  const handleFeed = () => runAction(feedDragon);
 
   const handleCheckInComplete = (energy: number, mood: number) => {
-    if (!state) return;
-    const newLog = {
-      date: new Date().toISOString(),
-      energy,
-      mood,
-    };
-    const newQuests = state.quests.map(q => 
-      q.type === 'symptom' ? { ...q, progress: q.target, completed: true } : q
-    );
-
-    setState({
-      ...state,
-      quests: newQuests,
-      symptomLogs: [...state.symptomLogs, newLog],
-      energy: state.energy + 5,
-      growthProgress: Math.min(100, state.growthProgress + 1),
-      isNapping: false,
-    });
+    runAction((current, now) => logCheckIn(current, energy, mood, now));
   };
 
   if (!state) return null;
@@ -509,6 +292,7 @@ export default function App() {
             lastPetAt={state.lastPetAt} 
             lastIncubateAt={state.lastIncubateAt}
             stage={state.stage}
+            feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
 
           {petFlavorText && (
@@ -529,7 +313,7 @@ export default function App() {
               className="mt-6 p-4 bg-dragon-warm/50 rounded-2xl text-center border border-dragon-gold/10"
             >
               <p className="text-sm text-dragon-muted">
-                Ember is resting today. Complete a quest to wake them up!
+                {state.dragonName} curled up for a nap while you were away. Welcome back! Say hi or complete a quest to wake them up.
               </p>
             </motion.div>
           )}
@@ -577,13 +361,19 @@ export default function App() {
 
           {activeTab === 'focus' && (
             <motion.div key="focus" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }}>
-              <FocusTimer onComplete={handleFocusComplete} isActive={isFocusActive} setIsActive={setIsFocusActive} />
+              <FocusTimer
+                timer={focus.timer}
+                rewardsLeft={Math.max(0, DAILY_LIMITS.focusRewards - dailyFor(state, new Date()).focusRewards)}
+                onStart={focus.start}
+                onPause={focus.pause}
+                onReset={focus.reset}
+              />
             </motion.div>
           )}
 
           {activeTab === 'checkin' && (
             <motion.div key="checkin" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-              <SymptomCheckIn onComplete={handleCheckInComplete} />
+              <SymptomCheckIn onComplete={handleCheckInComplete} checkedInToday={hasCheckedInToday(state, new Date())} />
             </motion.div>
           )}
 
