@@ -72,36 +72,29 @@ export const BADGES: Badge[] = [
   { id: 'badge_streak_7', name: 'Week Warrior', description: 'Do one meaningful activity (a quest, focus session, or check-in) 7 days in a row.', icon: '🔥' },
   { id: 'badge_pet_10', name: 'Dragon Bonder', description: 'Pet your dragon 10 times.', icon: '❤️' },
   { id: 'badge_focus_5', name: 'Zen Master', description: 'Complete 5 focus quests.', icon: '🧘' },
+  { id: 'badge_days_100', name: 'Hundred Days Together', description: 'Share 100 active days with your dragon.', icon: '🌱' },
+  { id: 'badge_days_200', name: 'Two Hundred Days Together', description: 'Share 200 active days with your dragon.', icon: '🌳' },
+  { id: 'badge_days_365', name: 'A Year Together', description: 'Share 365 active days with your dragon.', icon: '🌟' },
 ];
 
 export const DRAGON_STAGES_DATA = {
   [DragonStage.EGG]: {
-    minProgress: 0,
-    maxProgress: 20,
-    description: "A mysterious egg pulsing with a faint, warm light. It needs daily care and incubation to hatch.",
+    description: "A mysterious egg pulsing with a faint, warm light. Take care of yourself for a couple of days, and it will hatch.",
     image: "https://picsum.photos/seed/dragon-egg/400/400"
   },
   [DragonStage.HATCHLING]: {
-    minProgress: 21,
-    maxProgress: 40,
     description: "Tiny, big eyes, wobbles when it walks. Fits on a single UI card. Ember glows when you stay hydrated!",
     image: "https://picsum.photos/seed/dragon-hatchling/400/400"
   },
   [DragonStage.FLEDGLING]: {
-    minProgress: 41,
-    maxProgress: 65,
     description: "Grows small nubs for horns and wings. Ember is starting to ask questions about the world.",
     image: "https://picsum.photos/seed/dragon-teen/400/400"
   },
   [DragonStage.DRAKE]: {
-    minProgress: 66,
-    maxProgress: 90,
     description: "Lean and athletic. Wings are functional. Ember can now go on scavenging runs while you focus.",
     image: "https://picsum.photos/seed/dragon-adult/400/400"
   },
   [DragonStage.ANCIENT]: {
-    minProgress: 91,
-    maxProgress: 100,
     description: "Majestic, glowing scales and ornate horns. Ember is now a permanent guardian of your health legacy.",
     image: "https://picsum.photos/seed/dragon-elder/400/400"
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { Quest, UserState } from '../types';
-import { REWARDS, advanceQuest, createInitialState, migrateState, rollOverDay, stageForGrowth } from './progression';
+import { DragonStage, Quest, UserState } from '../types';
+import { REWARDS, advanceQuest, createInitialState, migrateState, rollOverDay } from './progression';
+import { bondTotal } from './evolution';
 
 // #10: custom quests use standard rewards regardless of their category.
 
@@ -13,14 +14,14 @@ const vitality = (id: string, overrides: Partial<Quest> = {}): Quest => ({
 
 function hatchedWith(quests: Quest[]): UserState {
   const base = createInitialState(day(20));
-  return { ...base, growthProgress: 30, stage: stageForGrowth(30), quests: [...base.quests, ...quests] };
+  return { ...base, bond: { local: 30 }, stage: DragonStage.HATCHLING, quests: [...base.quests, ...quests] };
 }
 
 describe('custom quest rewards ignore category', () => {
   it('a custom Vitality quest grants standard energy and growth and no Golden Scales', () => {
     const { state } = advanceQuest(hatchedWith([vitality('v')]), 'v', day(20));
     expect(state.goldenScales).toBe(0);
-    expect(state.growthProgress).toBe(30 + REWARDS.questGrowth);
+    expect(bondTotal(state.bond)).toBe(30 + REWARDS.questGrowth);
     expect(state.energy).toBe(50 + 10);
   });
 
@@ -36,14 +37,14 @@ describe('custom quest rewards ignore category', () => {
     let state = hatchedWith([vitality('v', { target: 2 })]);
     state = advanceQuest(state, 'v', day(20)).state;
     state = advanceQuest(state, 'v', day(20)).state;
-    expect(state.growthProgress).toBe(30 + REWARDS.questGrowth);
+    expect(bondTotal(state.bond)).toBe(30 + REWARDS.questGrowth);
     expect(state.goldenScales).toBe(0);
   });
 
   it('the built-in Daily Vitality quest still grants its bonus', () => {
     const { state } = advanceQuest(hatchedWith([]), 'q2', day(20));
     expect(state.goldenScales).toBe(REWARDS.medication.scales);
-    expect(state.growthProgress).toBe(30 + REWARDS.medication.growth);
+    expect(bondTotal(state.bond)).toBe(30 + REWARDS.medication.growth);
   });
 
   it('custom Vitality quests still count toward the streak', () => {

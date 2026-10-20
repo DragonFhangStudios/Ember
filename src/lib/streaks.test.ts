@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Quest, UserState } from '../types';
+import { DragonStage, Quest, UserState } from '../types';
 import {
   DAILY_LIMITS,
   SAVE_VERSION,
@@ -14,13 +14,13 @@ import {
   migrateState,
   petDragon,
   rollOverDay,
-  stageForGrowth,
 } from './progression';
+import { bondTotal } from './evolution';
 
 const day = (d: number, hour = 10, minute = 0) => new Date(2026, 9, d, hour, minute);
 
 function hatched(now = day(20)): UserState {
-  return { ...createInitialState(now), growthProgress: 30, stage: stageForGrowth(30) };
+  return { ...createInitialState(now), bond: { local: 30 }, stage: DragonStage.HATCHLING };
 }
 
 /** One meaningful activity: completing the single-step Morning Routine quest. */
@@ -65,7 +65,7 @@ describe('what counts as a meaningful activity', () => {
     const { state, message } = completeFocusSession(capped, day(20));
     expect(state.currentStreak).toBe(1);
     expect(message).toMatch(/Today counts/);
-    expect(message).toMatch(/focus growth/);
+    expect(message).toMatch(/focus Bond/);
   });
 
   it('logging a check-in counts', () => {
@@ -76,7 +76,7 @@ describe('what counts as a meaningful activity', () => {
     let state = hatched();
     state = petDragon(state, day(20)).state;
     state = feedDragon(state, day(20)).state;
-    expect(state.growthProgress).toBeGreaterThan(30);
+    expect(bondTotal(state.bond)).toBeGreaterThan(30);
     expect(state.currentStreak).toBe(0);
     expect(state.daily.meaningfulActivity).toBe(false);
 

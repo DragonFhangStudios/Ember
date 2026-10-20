@@ -33,6 +33,22 @@ import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { cn } from './lib/utils';
 
 const STORAGE_KEY = 'ember_user_state_v2';
+// Kept outside the save so a save copied to another device gets its own Bond ledger entry.
+const DEVICE_ID_KEY = 'ember_device_id';
+
+function getDeviceId(): string {
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `device_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(DEVICE_ID_KEY, id);
+    return id;
+  } catch {
+    return 'local';
+  }
+}
 const DAY_CHECK_INTERVAL_MS = 30_000;
 
 function loadState(now: Date): UserState {
@@ -43,7 +59,7 @@ function loadState(now: Date): UserState {
   } catch {
     raw = null;
   }
-  return evaluateBadges(rollOverDay(migrateState(raw, now), now), now);
+  return evaluateBadges(rollOverDay({ ...migrateState(raw, now), deviceId: getDeviceId() }, now), now);
 }
 
 export default function App() {
@@ -173,7 +189,8 @@ export default function App() {
     update(current => ({
       ...createInitialState(new Date()),
       isDarkMode: current.isDarkMode,
-      themeColor: current.themeColor
+      themeColor: current.themeColor,
+      deviceId: current.deviceId
     }));
     focus.reset();
     setActiveTab('dashboard');

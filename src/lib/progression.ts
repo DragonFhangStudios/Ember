@@ -1,17 +1,34 @@
 import { DragonStage, DailyRewards, Quest, SymptomLog, UserState } from '../types';
 import { INITIAL_QUESTS, BADGES } from '../constants';
+import {
+  LEGACY_BOND_KEY,
+  LOCAL_BOND_KEY,
+  activeDaysThreshold,
+  addActiveDay,
+  addBond,
+  emptyActivity,
+  higherStage,
+  isoDay,
+  lifetimeActiveDays,
+  sanitizeActivity,
+  sanitizeBond,
+  stageForActiveDays,
+  toIsoDay,
+} from './evolution';
 
 // Ember's progression rules, kept pure so they can be unit tested.
-// Philosophy: growth is permanent. Missing days may break a streak or make
-// Ember nap, but never takes away growth, stages, or earned rewards.
+// Philosophy: progress is permanent. Missing days may break a streak or make
+// Ember nap, but never takes away Bond, stages, or earned rewards.
+// Evolution follows cumulative active days (see ./evolution); "growth"
+// rewards add to Bond, which is uncapped and never affects evolution.
 // A day counts toward the streak with one meaningful activity: completing a
 // quest, finishing a focus session, or logging a check-in (not petting/feeding).
 
-export const SAVE_VERSION = 5;
-export const MAX_GROWTH = 100;
+export const SAVE_VERSION = 6;
 
-// Minimum growth required for each stage, highest first.
-export const STAGE_THRESHOLDS: ReadonlyArray<readonly [DragonStage, number]> = [
+// Pre-v6 rules (evolution by growth, capped at 100). Only used to migrate old saves.
+const LEGACY_MAX_GROWTH = 100;
+const LEGACY_GROWTH_THRESHOLDS: ReadonlyArray<readonly [DragonStage, number]> = [
   [DragonStage.ANCIENT, 91],
   [DragonStage.DRAKE, 66],
   [DragonStage.FLEDGLING, 41],
@@ -56,7 +73,6 @@ export function daysBetween(fromKey: string, now: Date): number {
   return Math.round((b - a) / 86_400_000);
 }
 
-const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 // Keeps fractional per-step growth (e.g. 2/3) from drifting when summed.
 const roundGrowth = (n: number) => Math.round(n * 1e6) / 1e6;
 
@@ -74,12 +90,16 @@ function customQuestGrowthEarned(quest: Quest, progress: number): number {
   return perStep * progress;
 }
 
-export function stageForGrowth(growth: number): DragonStage {
-  return STAGE_THRESHOLDS.find(([, min]) => growth >= min)![0];
+function legacyStageForGrowth(growth: number): DragonStage {
+  return LEGACY_GROWTH_THRESHOLDS.find(([, min]) => growth >= min)![0];
 }
 
-export function stageThreshold(stage: DragonStage): number {
-  return STAGE_THRESHOLDS.find(([s]) => s === stage)?.[1] ?? 0;
+function legacyGrowthThreshold(stage: DragonStage): number {
+  return LEGACY_GROWTH_THRESHOLDS.find(([s]) => s === stage)?.[1] ?? 0;
+}
+
+export function activeDaysOf(state: UserState): number {
+  return lifetimeActiveDays(state.activity);
 }
 
 export function freshDaily(date: string): DailyRewards {
@@ -92,26 +112,25 @@ export function dailyFor(state: UserState, now: Date): DailyRewards {
   return state.daily?.date === today ? state.daily : freshDaily(today);
 }
 
-/** Adds rewards. Growth only ever increases, and the stage follows from it. */
+/** Adds rewards. `growth` goes to this device's Bond entry; it never changes the stage. */
 export function grantRewards(
   state: UserState,
   { energy = 0, growth = 0, scales = 0 }: { energy?: number; growth?: number; scales?: number },
 ): UserState {
-  const growthProgress = clamp(state.growthProgress + Math.max(0, growth), 0, MAX_GROWTH);
   return {
     ...state,
     energy: Math.round(state.energy + energy),
     goldenScales: state.goldenScales + scales,
-    growthProgress,
-    stage: stageForGrowth(growthProgress),
+    bond: addBond(state.bond, state.deviceId ?? LOCAL_BOND_KEY, growth),
     isNapping: false,
   };
 }
 
 /**
- * Counts today toward the streak. Only the first meaningful activity of a day
- * changes the streak; later ones are no-ops. Continues the streak when the
- * last active day was yesterday, otherwise starts a fresh one.
+ * Counts today toward the streak and lifetime active days. Only the first
+ * meaningful activity of a day changes anything; later ones are no-ops.
+ * Continues the streak when the last active day was yesterday, otherwise
+ * starts a fresh one. Evolution follows the lifetime active-day count.
  */
 export function creditMeaningfulActivity(state: UserState, now: Date): { state: UserState; message?: string } {
   const daily = dailyFor(state, now);
@@ -124,11 +143,15 @@ export function creditMeaningfulActivity(state: UserState, now: Date): { state: 
 
   const continues = gap === 1;
   const currentStreak = gap === 0 ? state.currentStreak : continues ? state.currentStreak + 1 : 1;
+  const activity = addActiveDay(state.activity, isoDay(now));
+  const stage = higherStage(state.stage, stageForActiveDays(lifetimeActiveDays(activity)));
   const next: UserState = {
     ...state,
     currentStreak,
     bestStreak: Math.max(state.bestStreak, currentStreak),
     lastActiveDay: today,
+    activity,
+    stage,
     daily: { ...daily, meaningfulActivity: true },
   };
 
@@ -139,6 +162,9 @@ export function creditMeaningfulActivity(state: UserState, now: Date): { state: 
     message = `Welcome back! Today counts, and ${state.dragonName} is happy you're here.`;
   } else if (gap !== 0) {
     message = `Today counts! ${state.dragonName} is happy you're here.`;
+  }
+  if (stage !== state.stage) {
+    message = `✨ ${state.dragonName} grew into a ${stage}! ${message ?? ''}`.trim();
   }
   return { state: next, message };
 }
@@ -158,7 +184,8 @@ export function createInitialState(now: Date): UserState {
     stage: DragonStage.EGG,
     energy: 50,
     goldenScales: 0,
-    growthProgress: 0,
+    bond: {},
+    activity: emptyActivity(),
     lastLogin: today,
     isNapping: false,
     quests: INITIAL_QUESTS,
@@ -179,8 +206,8 @@ const num = (value: unknown, fallback: number) =>
 
 /**
  * Upgrades any previously saved state to the current shape without losing
- * progress. Older saves could have their stage forced back to Egg, so the
- * higher of saved growth and the saved stage's threshold is kept.
+ * progress. Stages never go down: pre-v6 saves keep their stage through a
+ * legacy active-day credit, and their growth becomes Bond.
  */
 export function migrateState(raw: unknown, now: Date): UserState {
   const base = createInitialState(now);
@@ -204,11 +231,6 @@ export function migrateState(raw: unknown, now: Date): UserState {
   const savedStage = Object.values(DragonStage).includes(saved.stage as DragonStage)
     ? (saved.stage as DragonStage)
     : DragonStage.EGG;
-  const growthProgress = clamp(
-    Math.max(num(saved.growthProgress, 0), stageThreshold(savedStage)),
-    0,
-    MAX_GROWTH,
-  );
 
   const lastLogin = typeof saved.lastLogin === 'string' ? saved.lastLogin : base.lastLogin;
   const daily: DailyRewards =
@@ -252,14 +274,51 @@ export function migrateState(raw: unknown, now: Date): UserState {
     }
   }
 
+  // v6: evolution by active days, growth becomes Bond.
+  let bond = sanitizeBond(saved.bond);
+  let activity = sanitizeActivity(saved.activity);
+  let stage = savedStage;
+  if (num(saved.version, 0) < 6) {
+    // Older saves could have their stage forced back to Egg, so the higher of
+    // saved growth and the saved stage's growth threshold is kept (as before).
+    const legacyGrowth = Math.min(
+      LEGACY_MAX_GROWTH,
+      Math.max(num(saved.growthProgress, 0), legacyGrowthThreshold(savedStage)),
+    );
+    stage = legacyStageForGrowth(legacyGrowth);
+    bond = legacyGrowth > 0 ? { [LEGACY_BOND_KEY]: legacyGrowth } : {};
+
+    // Seed real, known active dates, then add a lower-bound credit so the
+    // current stage is always kept.
+    for (const day of [
+      ...(Array.isArray(saved.symptomLogs) ? saved.symptomLogs : []).map(l => toIsoDay(l?.date)),
+      toIsoDay(lastActiveDay),
+    ]) {
+      if (day) activity = addActiveDay(activity, day);
+    }
+    // The old stage already reflects everything earned up to the upgrade,
+    // including any activity earlier on the upgrade day itself. In that case
+    // the credit covers today too, so upgrading never adds an extra day; if
+    // today had no activity yet, a new one after upgrading counts once.
+    const floor = activeDaysThreshold(stage);
+    if (floor > 0) {
+      const today = isoDay(now);
+      const tomorrow = isoDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
+      activity = { ...activity, legacy: [{ floor, before: activity.days.includes(today) ? tomorrow : today }] };
+    }
+  }
+  stage = higherStage(stage, stageForActiveDays(lifetimeActiveDays(activity)));
+
+  const { growthProgress: _legacyGrowth, deviceId: _untrustedDeviceId, ...rest } = saved as Record<string, unknown>;
   return {
     ...base,
-    ...saved,
+    ...(rest as Partial<UserState>),
     version: SAVE_VERSION,
     quests,
     badges,
-    growthProgress,
-    stage: stageForGrowth(growthProgress),
+    bond,
+    activity,
+    stage,
     energy: num(saved.energy, base.energy),
     goldenScales: num(saved.goldenScales, 0),
     petCount: num(saved.petCount, 0),
@@ -336,7 +395,7 @@ export function advanceQuest(state: UserState, id: string, now: Date, increment 
     const remaining = Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth);
     const granted = Math.min(growth, remaining);
     if (granted < growth) {
-      message = "You've earned today's growth from custom quests. They still count for energy and your streak!";
+      message = "You've earned today's Bond from custom quests. They still count for energy and your streak!";
     }
     growth = granted;
     withQuest = { ...withQuest, daily: { ...daily, customQuestGrowth: roundGrowth(daily.customQuestGrowth + granted) } };
@@ -408,7 +467,7 @@ export function completeFocusSession(state: UserState, now: Date): ActionResult 
   if (daily.focusRewards >= DAILY_LIMITS.focusRewards) {
     return withStreakCredit({
       state: { ...withQuest, daily, isNapping: false },
-      message: "Great focus! You've earned all of today's focus growth. Ember is proud of you.",
+      message: "Great focus! You've earned all of today's focus Bond. Ember is proud of you.",
     }, now);
   }
   return withStreakCredit({
@@ -453,7 +512,10 @@ export function evaluateBadges(state: UserState, now: Date): UserState {
       (badge.id === 'badge_hatch' && state.stage !== DragonStage.EGG) ||
       (badge.id === 'badge_pet_10' && state.petCount >= 10) ||
       (badge.id === 'badge_streak_3' && state.bestStreak >= 3) ||
-      (badge.id === 'badge_streak_7' && state.bestStreak >= 7);
+      (badge.id === 'badge_streak_7' && state.bestStreak >= 7) ||
+      (badge.id === 'badge_days_100' && activeDaysOf(state) >= 100) ||
+      (badge.id === 'badge_days_200' && activeDaysOf(state) >= 200) ||
+      (badge.id === 'badge_days_365' && activeDaysOf(state) >= 365);
     // TODO: badge_focus_5 needs a lifetime focus counter (Phase 2).
     if (!unlocked) return badge;
     changed = true;
