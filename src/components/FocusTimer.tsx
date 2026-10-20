@@ -19,7 +19,7 @@ export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProp
       timerRef.current = setInterval(() => {
         setTimeLeft((prev) => prev - 1);
       }, 1000);
-    } else if (timeLeft === 0) {
+    } else if (timeLeft === 0 && !isFinished) {
       setIsActive(false);
       setIsFinished(true);
       onComplete(15);
@@ -31,7 +31,7 @@ export function FocusTimer({ onComplete, isActive, setIsActive }: FocusTimerProp
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isActive, timeLeft, setIsActive, onComplete]);
+  }, [isActive, timeLeft, isFinished, setIsActive, onComplete]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
