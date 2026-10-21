@@ -2,7 +2,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DragonStage } from '../types';
 import { DRAGON_STAGES_DATA } from '../constants';
 import { cn } from '../lib/utils';
+import { usePrefersReducedMotion } from '../lib/useMediaQuery';
 import { Sparkles } from 'lucide-react';
+import { Celebration } from './Celebration';
 
 interface DragonAvatarProps {
   stage: DragonStage;
@@ -21,51 +23,43 @@ interface DragonAvatarProps {
 export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevelingUp, className, equipped }: DragonAvatarProps) {
   const stageData = DRAGON_STAGES_DATA[stage];
   const isEgg = stage === DragonStage.EGG;
+  // Idle loops (sparkles, breathing, shimmer) stop when the player prefers reduced motion.
+  const reduceMotion = usePrefersReducedMotion();
 
   return (
     <div className={cn("relative flex flex-col items-center justify-center", className)}>
       {/* Ambient Sparkles */}
-      {!isNapping && (
+      {!isNapping && !reduceMotion && (
         <div className="absolute inset-0 pointer-events-none">
-          {[...Array(isLevelingUp ? 20 : 6)].map((_, i) => (
+          {[...Array(6)].map((_, i) => (
             <motion.div
               key={i}
               initial={{ opacity: 0, scale: 0 }}
-              animate={{ 
-                opacity: [0, 1, 0], 
-                scale: isLevelingUp ? [0, 1.5, 0] : [0, 1, 0],
-                x: isLevelingUp 
-                  ? [0, (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 300] 
-                  : [0, (i % 2 === 0 ? 1 : -1) * (20 + i * 10), 0],
-                y: isLevelingUp 
-                  ? [0, (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 300] 
-                  : [0, -40 - i * 15, 0]
+              animate={{
+                opacity: [0, 1, 0],
+                scale: [0, 1, 0],
+                x: [0, (i % 2 === 0 ? 1 : -1) * (20 + i * 10), 0],
+                y: [0, -40 - i * 15, 0],
               }}
-              transition={{
-                duration: isLevelingUp ? 1.5 : 3 + i,
-                repeat: isLevelingUp ? 0 : Infinity,
-                delay: isLevelingUp ? Math.random() * 0.5 : i * 0.8,
-                ease: "easeOut"
-              }}
-              className={cn(
-                "absolute left-1/2 top-1/2 rounded-full blur-[1px]",
-                isLevelingUp ? "w-2 h-2 bg-dragon-gold shadow-[0_0_10px_#D4AF37]" : "w-1.5 h-1.5 bg-dragon-gold"
-              )}
+              transition={{ duration: 3 + i, repeat: Infinity, delay: i * 0.8, ease: "easeOut" }}
+              className="absolute left-1/2 top-1/2 w-1.5 h-1.5 rounded-full blur-[1px] bg-dragon-gold"
             />
           ))}
         </div>
       )}
 
-      {/* Level Up Text */}
+      {/* Evolution: a gentle glow, sparkles, and a short banner (see Celebration). */}
+      <Celebration active={!!isLevelingUp} rounded="rounded-full" />
       <AnimatePresence>
         {isLevelingUp && (
           <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.5 }}
-            animate={{ opacity: 1, y: -100, scale: 1.5 }}
-            exit={{ opacity: 0, scale: 2 }}
+            initial={{ opacity: 0, y: -80 }}
+            animate={{ opacity: 1, y: -96 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
             className="absolute z-50 pointer-events-none"
           >
-            <div className="bg-dragon-gold text-white px-6 py-2 rounded-full font-bold shadow-2xl border-2 border-white flex items-center gap-2">
+            <div className="bg-dragon-gold text-dragon-ink px-6 py-2 rounded-full font-bold shadow-xl border-2 border-white flex items-center gap-2">
               <Sparkles className="w-5 h-5" />
               <span className="serif tracking-widest uppercase">Evolution Milestone!</span>
               <Sparkles className="w-5 h-5" />
@@ -75,21 +69,19 @@ export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevel
       </AnimatePresence>
 
       <motion.div
-        animate={{
-          scale: isNapping ? 0.95 : isLevelingUp ? [1, 1.2, 1] : [1, 1.02, 1],
-          y: isNapping ? 5 : [0, -10, 0],
-          rotate: isNapping ? 0 : isLevelingUp ? [0, 360] : isEgg ? [-1, 1, -1] : [-2, 2, -2],
-        }}
+        animate={
+          isNapping
+            ? { scale: 0.95, y: 5, rotate: 0 }
+            : reduceMotion
+              ? { scale: 1, y: 0, rotate: 0 }
+              : { scale: [1, 1.02, 1], y: [0, -10, 0], rotate: isEgg ? [-1, 1, -1] : [-2, 2, -2] }
+        }
         transition={{
-          duration: isLevelingUp ? 1 : isNapping ? 3 : 4,
-          repeat: isLevelingUp ? 0 : Infinity,
+          duration: isNapping ? 3 : 4,
+          repeat: isNapping || reduceMotion ? 0 : Infinity,
           ease: "easeInOut"
         }}
-        className={cn(
-          "relative transition-all duration-500",
-          isPetted && "animate-heartbeat",
-          isLevelingUp && "z-40"
-        )}
+        className={cn("relative transition-all duration-500", isPetted && "animate-heartbeat")}
       >
         {/* Glow effect when petted */}
         {isPetted && (
@@ -124,7 +116,7 @@ export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevel
           />
           
           {/* Shimmer Overlay */}
-          {!isNapping && (
+          {!isNapping && !reduceMotion && (
             <motion.div
               animate={{
                 opacity: [0, 0.2, 0],
@@ -156,7 +148,7 @@ export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevel
           <motion.div
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="absolute -top-8 left-1/2 -translate-x-1/2 w-16 h-16 bg-white rounded-full p-1 shadow-lg border border-dragon-gold/20"
+            className="absolute -top-8 left-1/2 -translate-x-1/2 w-16 h-16 bg-surface rounded-full p-1 shadow-lg border border-dragon-gold/20"
           >
             <img 
               src={`https://picsum.photos/seed/${equipped.hat}/100/100`} 
@@ -172,7 +164,7 @@ export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevel
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-24 h-8 bg-dragon-ember rounded-full shadow-md border border-white/20 flex items-center justify-center"
+            className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-24 h-8 bg-ember-solid rounded-full shadow-md border border-white/20 flex items-center justify-center"
           >
             <span className="text-[0.625rem] font-bold text-white uppercase tracking-widest">Equipped</span>
           </motion.div>
@@ -182,24 +174,24 @@ export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevel
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute -top-4 -right-4 bg-white rounded-full p-2 shadow-md"
+            className="absolute -top-4 -right-4 bg-surface rounded-full p-2 shadow-md"
           >
-            <span className="text-xl font-bold text-dragon-muted">Zzz</span>
+            <span className="text-xl font-bold text-fg-muted">Zzz</span>
           </motion.div>
         )}
 
         {isMeditating && (
           <motion.div
-            animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity }}
+            animate={reduceMotion ? { scale: 1, opacity: 0.7 } : { scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 2, repeat: reduceMotion ? 0 : Infinity }}
             className="absolute inset-0 rounded-full border-4 border-dragon-ember"
           />
         )}
       </motion.div>
       
       <div className="mt-6 text-center">
-        <h2 className="serif text-3xl font-bold text-dragon-ink">{stage}</h2>
-        <p className="text-sm text-dragon-muted italic mt-1">{stageData.description}</p>
+        <h2 className="serif text-3xl font-bold text-fg">{stage}</h2>
+        <p className="text-sm text-fg-muted italic mt-1">{stageData.description}</p>
       </div>
     </div>
   );

@@ -25,7 +25,7 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
   const progress = ((timer.durationMs - timer.remainingMs) / timer.durationMs) * 100;
 
   return (
-    <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-dragon-gold/10 flex flex-col items-center text-center">
+    <div className="bg-surface rounded-3xl p-6 sm:p-8 shadow-xl border border-line flex flex-col items-center text-center">
       <div className="mb-6 flex items-center gap-2 text-dragon-ember">
         <Timer className="w-6 h-6" />
         <h2 className="serif text-2xl font-bold">Focus Quest</h2>
@@ -40,7 +40,7 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
             stroke="currentColor"
             strokeWidth="8"
             fill="transparent"
-            className="text-dragon-warm"
+            className="text-surface-muted"
           />
           <motion.circle
             cx="96"
@@ -55,7 +55,7 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-4xl font-bold font-mono text-dragon-ink">
+          <span className="text-4xl font-bold font-mono text-fg">
             {formatTime(timeLeft)}
           </span>
         </div>
@@ -70,8 +70,8 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
               className={cn(
                 "w-20 h-20 rounded-full flex items-center justify-center transition-all",
                 isActive 
-                  ? "bg-dragon-warm text-dragon-ink hover:bg-dragon-gold/10" 
-                  : "bg-dragon-ember text-white hover:bg-dragon-ember/90 shadow-lg shadow-dragon-ember/20"
+                  ? "bg-surface-muted text-fg hover:bg-dragon-gold/10" 
+                  : "bg-ember-solid text-white hover:bg-ember-solid/90 shadow-lg shadow-dragon-ember/20"
               )}
             >
               {isActive ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
@@ -79,7 +79,7 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
             <button
               onClick={onReset}
               aria-label="Reset focus"
-              className="w-14 h-14 rounded-full bg-dragon-warm text-dragon-ink flex items-center justify-center hover:bg-dragon-gold/10 transition-all"
+              className="w-14 h-14 rounded-full bg-surface-muted text-fg flex items-center justify-center hover:bg-dragon-gold/10 transition-all"
             >
               <RotateCcw className="w-6 h-6" />
             </button>
@@ -93,10 +93,10 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
             <div className="bg-dragon-gold/10 p-4 rounded-full">
               <Trophy className="w-10 h-10 text-dragon-gold" />
             </div>
-            <p className="font-bold text-dragon-ink">Quest Complete!</p>
+            <p className="font-bold text-fg">Quest Complete!</p>
             <button
               onClick={onReset}
-              className="min-h-12 px-6 py-3 bg-dragon-gold text-white rounded-full font-bold hover:bg-dragon-gold/90 transition-all"
+              className="min-h-12 px-6 py-3 bg-dragon-gold text-dragon-ink rounded-full font-bold hover:bg-dragon-gold/90 transition-all"
             >
               Start New Quest
             </button>
@@ -104,12 +104,12 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
         )}
       </div>
 
-      <p className="mt-6 text-sm text-dragon-muted max-w-xs">
+      <p className="mt-6 text-sm text-fg-muted max-w-xs">
         {isActive 
           ? "Ember is meditating with you. Stay focused!" 
           : "Ready to start a focus quest? Ember will meditate by your side."}
       </p>
-      <p className="mt-2 text-xs text-dragon-muted">
+      <p className="mt-2 text-xs text-fg-muted">
         {rewardsLeft > 0
           ? `${rewardsLeft} Bond-earning ${rewardsLeft === 1 ? 'session' : 'sessions'} left today`
           : "Today's focus Bond is complete. Sessions still count toward your quest!"}

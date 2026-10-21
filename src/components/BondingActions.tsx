@@ -55,8 +55,8 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
           className={cn(
             "min-h-12 flex items-center gap-2 px-5 py-3 rounded-2xl font-bold transition-all shadow-lg relative overflow-hidden",
             canPet 
-              ? "bg-rose-500 text-white hover:bg-rose-600 shadow-rose-500/20" 
-              : "bg-dragon-warm text-dragon-muted cursor-not-allowed opacity-80"
+              ? "bg-rose-solid text-white hover:bg-rose-solid/90 shadow-rose-500/20" 
+              : "bg-surface-muted text-fg-muted cursor-not-allowed opacity-80"
           )}
         >
           {canPet ? (
@@ -73,12 +73,12 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
           onClick={onFeed}
           disabled={!canFeed}
           className={cn(
-            "min-h-12 flex items-center gap-2 px-5 py-3 rounded-2xl text-white font-bold transition-all shadow-lg",
+            "min-h-12 flex items-center gap-2 px-5 py-3 rounded-2xl font-bold transition-all shadow-lg",
             !canFeed
-              ? "bg-dragon-warm text-dragon-muted cursor-not-allowed opacity-80"
+              ? "bg-surface-muted text-fg-muted cursor-not-allowed opacity-80"
               : isEgg
-                ? "bg-dragon-ember hover:bg-dragon-ember/90 shadow-dragon-ember/20"
-                : "bg-dragon-gold hover:bg-dragon-gold/90 shadow-dragon-gold/20"
+                ? "bg-ember-solid text-white hover:bg-ember-solid/90 shadow-dragon-ember/20"
+                : "bg-dragon-gold text-dragon-ink hover:bg-dragon-gold/90 shadow-dragon-gold/20"
           )}
         >
           {!canFeed ? <Clock className="w-5 h-5" /> : isEgg ? <Flame className="w-5 h-5" /> : <Utensils className="w-5 h-5" />}
@@ -90,7 +90,7 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
         <motion.p 
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-xs text-center uppercase tracking-widest font-bold text-dragon-muted"
+          className="text-xs text-center uppercase tracking-widest font-bold text-fg-muted"
         >
           Daily care complete! Ember is resting
         </motion.p>

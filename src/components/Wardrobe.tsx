@@ -13,7 +13,7 @@ interface WardrobeProps {
 export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
   return (
     <div className="space-y-8">
-      <div className="flex items-center gap-2 text-dragon-gold mb-6">
+      <div className="flex items-center gap-2 text-gold-fg mb-6">
         <ShoppingBag className="w-6 h-6" />
         <h2 className="serif text-2xl font-bold">Dragon Wardrobe</h2>
       </div>
@@ -29,19 +29,19 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
               key={item.id}
               whileHover={{ scale: 1.02 }}
               className={cn(
-                "bg-white rounded-2xl p-4 border transition-all flex items-center gap-3 sm:gap-4",
-                isEquipped ? "border-dragon-gold ring-1 ring-dragon-gold" : "border-dragon-gold/10"
+                "bg-surface rounded-2xl p-4 border transition-all flex items-center gap-3 sm:gap-4",
+                isEquipped ? "border-dragon-gold ring-1 ring-dragon-gold" : "border-line"
               )}
             >
-              <div className="w-16 h-16 bg-dragon-warm rounded-xl overflow-hidden flex-shrink-0">
+              <div className="w-16 h-16 bg-surface-muted rounded-xl overflow-hidden flex-shrink-0">
                 <img src={item.image} alt={item.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
               </div>
 
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-dragon-ink truncate">{item.name}</h3>
-                <p className="text-xs text-dragon-muted capitalize">{item.category}</p>
+                <h3 className="font-bold text-fg truncate">{item.name}</h3>
+                <p className="text-xs text-fg-muted capitalize">{item.category}</p>
                 {!isOwned && (
-                  <div className="flex items-center gap-1 mt-1 text-dragon-gold font-bold text-sm">
+                  <div className="flex items-center gap-1 mt-1 text-gold-fg font-bold text-sm">
                     <span>{item.price}</span>
                     <div className="w-2 h-2 rounded-full bg-dragon-gold" />
                   </div>
@@ -54,8 +54,8 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
                   className={cn(
                     "min-h-11 min-w-11 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center",
                     isEquipped 
-                      ? "bg-dragon-gold text-white" 
-                      : "bg-dragon-warm text-dragon-ink hover:bg-dragon-gold/10"
+                      ? "bg-dragon-gold text-dragon-ink" 
+                      : "bg-surface-muted text-fg hover:bg-dragon-gold/10"
                   )}
                 >
                   {isEquipped ? <Check className="w-4 h-4" /> : 'Equip'}
@@ -67,8 +67,8 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
                   className={cn(
                     "min-h-11 min-w-11 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1",
                     canAfford 
-                      ? "bg-dragon-ink text-white hover:bg-black" 
-                      : "bg-dragon-warm text-dragon-muted cursor-not-allowed"
+                      ? "bg-fg text-surface hover:opacity-90" 
+                      : "bg-surface-muted text-fg-muted cursor-not-allowed"
                   )}
                 >
                   {!canAfford && <Lock className="w-3 h-3" />}

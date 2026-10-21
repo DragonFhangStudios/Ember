@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Ember Wellness</title>
+    <script>
+      // Applies the theme before the first paint, so there's no flash of the
+      // wrong theme while the save loads (the app takes over once it has).
+      // 'ember_theme' caches the saved preference (see src/lib/theme.ts). With
+      // no cache yet: a returning player from before themes saw light mode,
+      // and a new player follows the system.
+      try {
+        var preference = localStorage.getItem('ember_theme');
+        if (!preference && (localStorage.getItem('ember_device_id') || localStorage.getItem('ember_user_state_v2'))) {
+          preference = 'light';
+        }
+        if (preference === 'dark' || (preference !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
