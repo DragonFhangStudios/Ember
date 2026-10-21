@@ -467,73 +467,73 @@ export default function App() {
           </div>
         </div>
 
-        <div ref={tabContentRef} className="scroll-below-header">
-          <AnimatePresence mode="wait">
-            {activeTab === 'dashboard' && (
-              <motion.div
-                key="dashboard"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                className="space-y-4"
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <h2 className="serif text-2xl font-bold text-[var(--text-primary)]">Daily Quests</h2>
-                  <button 
-                    onClick={() => setShowCustomQuest(true)}
-                    className="min-h-11 -mr-3 px-3 flex items-center gap-1 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
-                  >
-                    <Plus className="w-3 h-3" /> Add Custom
-                  </button>
-                </div>
-                {state.quests.map((quest: Quest) => (
-                  <QuestItem 
-                    key={quest.id} 
-                    quest={quest} 
-                    onToggle={handleUpdateQuestProgress} 
-                    customQuestTypes={state.customQuestTypes}
-                  />
-                ))}
-              </motion.div>
-            )}
-
-            {activeTab === 'focus' && (
-              <motion.div key="focus" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }}>
-                <FocusTimer
-                  timer={focusTimer}
-                  rewardsLeft={Math.max(0, DAILY_LIMITS.focusRewards - dailyFor(state, new Date()).focusRewards)}
-                  onStart={handleFocusStart}
-                  onPause={handleFocusPause}
-                  onReset={handleFocusReset}
+        {/* Where a picked tab scrolls to (see selectTab). */}
+        <div ref={tabContentRef} aria-hidden="true" className="scroll-below-header" />
+        <AnimatePresence mode="wait">
+          {activeTab === 'dashboard' && (
+            <motion.div
+              key="dashboard"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-4"
+            >
+              <div className="flex justify-between items-center mb-2">
+                <h2 className="serif text-2xl font-bold text-[var(--text-primary)]">Daily Quests</h2>
+                <button 
+                  onClick={() => setShowCustomQuest(true)}
+                  className="min-h-11 -mr-3 px-3 flex items-center gap-1 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
+                >
+                  <Plus className="w-3 h-3" /> Add Custom
+                </button>
+              </div>
+              {state.quests.map((quest: Quest) => (
+                <QuestItem 
+                  key={quest.id} 
+                  quest={quest} 
+                  onToggle={handleUpdateQuestProgress} 
+                  customQuestTypes={state.customQuestTypes}
                 />
-              </motion.div>
-            )}
+              ))}
+            </motion.div>
+          )}
 
-            {activeTab === 'checkin' && (
-              <motion.div key="checkin" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-                <SymptomCheckIn onComplete={handleCheckInComplete} checkedInToday={hasCheckedInToday(state, new Date())} />
-              </motion.div>
-            )}
+          {activeTab === 'focus' && (
+            <motion.div key="focus" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }}>
+              <FocusTimer
+                timer={focusTimer}
+                rewardsLeft={Math.max(0, DAILY_LIMITS.focusRewards - dailyFor(state, new Date()).focusRewards)}
+                onStart={handleFocusStart}
+                onPause={handleFocusPause}
+                onReset={handleFocusReset}
+              />
+            </motion.div>
+          )}
 
-            {activeTab === 'wardrobe' && (
-              <motion.div key="wardrobe" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-                <Wardrobe userState={state} onBuy={handleBuyItem} onEquip={handleEquipItem} />
-              </motion.div>
-            )}
+          {activeTab === 'checkin' && (
+            <motion.div key="checkin" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <SymptomCheckIn onComplete={handleCheckInComplete} checkedInToday={hasCheckedInToday(state, new Date())} />
+            </motion.div>
+          )}
 
-            {activeTab === 'insights' && (
-              <motion.div key="insights" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-                <Insights logs={state.symptomLogs} />
-              </motion.div>
-            )}
+          {activeTab === 'wardrobe' && (
+            <motion.div key="wardrobe" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <Wardrobe userState={state} onBuy={handleBuyItem} onEquip={handleEquipItem} />
+            </motion.div>
+          )}
 
-            {activeTab === 'badges' && (
-              <motion.div key="badges" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-                <Badges badges={state.badges} />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+          {activeTab === 'insights' && (
+            <motion.div key="insights" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <Insights logs={state.symptomLogs} />
+            </motion.div>
+          )}
+
+          {activeTab === 'badges' && (
+            <motion.div key="badges" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <Badges badges={state.badges} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <MedicalDisclaimer />
       </main>

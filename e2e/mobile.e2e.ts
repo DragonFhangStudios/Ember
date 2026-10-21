@@ -38,10 +38,15 @@ function layoutProblems(page: Page) {
   }, MIN_TAP_TARGET);
 }
 
-/** Polls, so open and close animations can finish first. */
-async function expectGoodLayout(page: Page, screen: string) {
+/**
+ * Waits for the screen's heading (tab content swaps in after the old tab's
+ * exit animation, and an empty screen would pass trivially), then polls so
+ * enter animations can finish.
+ */
+async function expectGoodLayout(page: Page, heading: string) {
+  await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
   await expect
-    .poll(() => layoutProblems(page), { message: `layout of ${screen}` })
+    .poll(() => layoutProblems(page), { message: `layout of ${heading}` })
     .toEqual({ horizontalScroll: false, cutOff: [], smallTapTargets: [] });
 }
 
@@ -66,27 +71,29 @@ test.beforeEach(async ({ page }) => {
   await waitForApp(page);
 });
 
+/** The heading each tab shows once its content is in. */
+const TAB_HEADINGS = { Home: 'Daily Quests', Focus: 'Focus Quest', 'Check-in': 'Daily Check-in', Shop: 'Dragon Wardrobe' } as const;
+
 test('every screen and dialog fits the phone, with tap targets of at least 44×44px', async ({ page }) => {
-  await expectGoodLayout(page, 'Home');
+  await expectGoodLayout(page, TAB_HEADINGS.Home);
   for (const tab of ['Focus', 'Check-in', 'Shop'] as const) {
     await goToTab(page, tab);
-    await expectGoodLayout(page, tab);
+    await expectGoodLayout(page, TAB_HEADINGS[tab]);
   }
 
   // Log a check-in so the logged view and the Insights charts are covered too.
   await goToTab(page, 'Check-in');
   await page.getByRole('button', { name: 'Log Check-in' }).click();
-  await expect(page.getByText('Check-in Logged')).toBeVisible();
-  await expectGoodLayout(page, 'Check-in (logged)');
-  for (const name of ['Insights', 'Milestones']) {
-    await page.getByRole('button', { name }).click();
-    await expectGoodLayout(page, name);
-  }
+  await expectGoodLayout(page, 'Check-in Logged');
+  await page.getByRole('button', { name: 'Insights' }).click();
+  await expectGoodLayout(page, 'Health Insights');
+  await page.getByRole('button', { name: 'Milestones' }).click();
+  await expectGoodLayout(page, 'Milestones');
 
   await page.getByRole('button', { name: 'Settings' }).click();
   await expectGoodLayout(page, 'Settings');
   await page.getByRole('button', { name: 'Reset progress…' }).click();
-  await expectGoodLayout(page, 'reset confirmation');
+  await expectGoodLayout(page, 'Reset Progress?');
   await page.getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('button', { name: 'Close settings' }).click();
 
@@ -156,6 +163,7 @@ test('Settings holds background color and dark mode, and saves them', async ({ p
 
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Settings' }), 'focus returns to where it was').toBeFocused();
 });
 
 test('reset in Settings still asks first, and Cancel keeps all progress', async ({ page }) => {
@@ -198,6 +206,7 @@ test('text follows the browser font size and still fits', async ({ page }) => {
 
   for (const tab of ['Home', 'Focus'] as const) {
     await goToTab(page, tab);
+    await expect(page.getByRole('heading', { name: TAB_HEADINGS[tab] })).toBeVisible();
     await expect
       .poll(async () => {
         const { horizontalScroll, cutOff } = await layoutProblems(page);
@@ -205,4 +214,10 @@ test('text follows the browser font size and still fits', async ({ page }) => {
       }, { message: `${tab} at 125% text` })
       .toEqual({ horizontalScroll: false, cutOff: [] });
   }
+});
+
+test('quests also work from the keyboard (Enter or Space)', async ({ page }) => {
+  await page.getByRole('button', { name: /Morning Routine/ }).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await readSave(page))?.state.energy).toBe(60);
 });

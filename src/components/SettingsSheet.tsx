@@ -32,12 +32,17 @@ export function SettingsSheet({ isOpen, themeColor, isDarkMode, onClose, onTheme
 
   useEffect(() => {
     if (!isOpen) return;
+    // Move focus into the sheet, and back to whatever opened it on close.
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      opener?.focus();
+    };
   }, [isOpen, onClose]);
 
   return (
