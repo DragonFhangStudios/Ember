@@ -31,6 +31,8 @@ import { Wardrobe } from './components/Wardrobe';
 import { Insights } from './components/Insights';
 import { Badges } from './components/Badges';
 import { CustomQuestForm } from './components/CustomQuestForm';
+import { DailyDragonFact } from './components/DailyDragonFact';
+import { factForDay } from './lib/dragonFacts/daily';
 import { BondingActions } from './components/BondingActions';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
@@ -630,6 +632,8 @@ export default function App() {
                   customQuestTypes={state.customQuestTypes}
                 />
               ))}
+              {/* Changes at local midnight (nowMs updates on the app's regular day check). */}
+              <DailyDragonFact fact={factForDay(new Date(nowMs))} />
             </motion.div>
           )}
 

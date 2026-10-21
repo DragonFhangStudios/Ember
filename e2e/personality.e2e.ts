@@ -41,11 +41,15 @@ async function expectSays(page: Page, ids: string[], what: string) {
   await expect(spoken(page), what).toHaveAttribute('data-line', new RegExp(`^(${ids.join('|')})$`));
 }
 
-/** Makes Ember a Hatchling (stages never go down, so this sticks). */
+/**
+ * Makes Ember a Hatchling (stages never go down, so this sticks), and waits
+ * for his hello, so a later wait for the message to go can't finish early.
+ */
 async function asHatchling(page: Page) {
   await editSave(page, "state.stage = 'Hatchling';");
   await page.reload();
   await waitForApp(page);
+  await expect(spoken(page), 'the hello on opening').toBeVisible();
 }
 
 test.beforeEach(async ({ page }) => {
