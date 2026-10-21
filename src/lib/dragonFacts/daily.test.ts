@@ -44,6 +44,26 @@ describe('Daily Dragon Fact', () => {
     }
   });
 
+  it('never repeats on consecutive days, and shows everything each cycle, for libraries of 2 to 25 facts', () => {
+    for (let n = 2; n <= 25; n++) {
+      const facts: DragonFact[] = Array.from({ length: n }, (_, i) => ({ id: `f${String(i).padStart(2, '0')}`, kind: 'lore', text: `Fact ${i}.` }));
+      let previous = '';
+      const start = new Date(2026, 0, 1, 12);
+      const firstDay = localDayNumber(start);
+      let cycleSeen = new Set<string>();
+      for (let i = 0; i < 3000; i++) {
+        const date = new Date(2026, 0, 1 + i, 12);
+        const day = localDayNumber(date);
+        const id = factForDay(date, facts).id;
+        expect(id, `n=${n}, day ${i}`).not.toBe(previous);
+        previous = id;
+        if (day % n === 0) cycleSeen = new Set();
+        cycleSeen.add(id);
+        if (day % n === n - 1 && day - firstDay >= n - 1) expect(cycleSeen.size, `n=${n}, cycle ending day ${i}`).toBe(n);
+      }
+    }
+  });
+
   it('works with a library of any size', () => {
     const facts: DragonFact[] = [{ id: 'only', kind: 'lore', text: 'One.' }];
     expect(factForDay(day(2026, 5, 1), facts).id).toBe('only');
@@ -65,7 +85,13 @@ describe('fact library', () => {
       expect(fact.source.publisher.trim(), fact.id).not.toBe('');
       expect(fact.source.url, fact.id).toMatch(/^https:\/\/[^/\s]+\.[a-z]{2,}\//);
       expect(fact.source.checked, fact.id).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(fact.source.checkedBy.trim(), fact.id).not.toBe('');
     }
+  });
+
+  it('includes the 16 source-checked real-world facts', () => {
+    expect(REAL_FACTS).toHaveLength(16);
+    expect(new Set(REAL_FACTS.map(f => f.kind === 'real' && f.source.url)).size, 'six source pages').toBe(6);
   });
 
   it('keeps lore and real facts apart', () => {

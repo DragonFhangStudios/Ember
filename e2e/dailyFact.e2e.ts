@@ -1,4 +1,5 @@
 import { factForDay } from '../src/lib/dragonFacts/daily';
+import { contrastProblems, settle } from './contrast';
 import { expect, openApp, test, waitForApp } from './fixtures';
 
 // Daily Dragon Fact (#18): one fact per local calendar day, offline.
@@ -35,3 +36,41 @@ test('changes at local midnight, offline', async ({ page, context }) => {
   expect(factForDay(afterMidnight).id).not.toBe(factForDay(beforeMidnight).id);
   await context.setOffline(false);
 });
+
+/** The first date from 2026-10-21 whose fact is of this kind. */
+function firstDayWith(kind: 'real' | 'lore') {
+  for (let i = 0; i < 60; i++) {
+    const date = new Date(2026, 9, 21 + i, 12);
+    if (factForDay(date).kind === kind) return date;
+  }
+  throw new Error(`no ${kind} fact in 60 days`);
+}
+
+for (const kind of ['real', 'lore'] as const) {
+  test(`a ${kind === 'real' ? 'real-world fact cites its source' : 'lore fact is labeled as fiction'}, readable in both themes`, async ({ page }) => {
+    const date = firstDayWith(kind);
+    const fact = factForDay(date);
+    await page.clock.setFixedTime(date);
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      await openApp(page);
+      await waitForApp(page);
+      await expect(card(page)).toHaveAttribute('data-fact', fact.id);
+      if (fact.kind === 'real') {
+        await expect(card(page)).toContainText('Real-world fact');
+        const link = card(page).getByRole('link', { name: new RegExp(fact.source.publisher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
+        await expect(link).toHaveAttribute('href', fact.source.url);
+        await expect(link).toHaveAttribute('target', '_blank');
+        await expect(link).toHaveAttribute('rel', /noopener/);
+        expect((await link.boundingBox())!.height, 'a comfortable tap target').toBeGreaterThanOrEqual(44);
+      } else {
+        await expect(card(page)).toContainText('Ember lore');
+        await expect(card(page)).toContainText('Just for fun');
+        await expect(card(page).getByRole('link')).toHaveCount(0);
+      }
+      await card(page).scrollIntoViewIfNeeded();
+      await settle(page);
+      expect(await contrastProblems(page), `${scheme} contrast`).toEqual([]);
+    }
+  });
+}

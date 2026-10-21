@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { contrastProblems, lightPanelsInDarkMode } from './contrast';
+import { contrastProblems, lightPanelsInDarkMode, settle } from './contrast';
 import { LEGACY_KEY, editSave, expect, goToTab, openApp, readSave, test, waitForApp } from './fixtures';
 
 // Themes, contrast, and motion (#17): every screen and dialog meets WCAG AA
@@ -19,19 +19,6 @@ async function chooseTheme(page: Page, theme: Theme) {
   await expect(radio).toBeChecked();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-}
-
-/**
- * Waits until animations have finished. Audits run with reduced motion on
- * (see auditMode): colors are the same, and the dragon's idle loops, which
- * Motion restarts as chains of short animations, are off.
- */
-async function settle(page: Page) {
-  await page.waitForFunction(
-    () => document.getAnimations().every(a => a.effect?.getTiming().iterations === Infinity || a.playState !== 'running'),
-    undefined,
-    { timeout: 5000 },
-  );
 }
 
 /**

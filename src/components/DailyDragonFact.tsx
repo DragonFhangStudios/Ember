@@ -35,6 +35,7 @@ export function DailyDragonFact({ fact }: DailyDragonFactProps) {
           Source:{' '}
           <a
             href={fact.source.url}
+            title={fact.source.title}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex min-h-11 items-center gap-1 font-bold text-ember-fg underline"

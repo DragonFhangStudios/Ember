@@ -118,3 +118,16 @@ export function lightPanelsInDarkMode(page: Page): Promise<string[]> {
       .map(e => `${e.tagName.toLowerCase()}.${[...e.classList].slice(0, 4).join('.')}`);
   });
 }
+
+/**
+ * Waits until animations have finished, so audits see final colors. Use with
+ * reduced motion on: colors are the same, and the dragon's idle loops (which
+ * Motion restarts as chains of short animations) are off.
+ */
+export async function settle(page: Page) {
+  await page.waitForFunction(
+    () => document.getAnimations().every(a => a.effect?.getTiming().iterations === Infinity || a.playState !== 'running'),
+    undefined,
+    { timeout: 5000 },
+  );
+}

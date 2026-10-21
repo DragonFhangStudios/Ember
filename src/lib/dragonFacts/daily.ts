@@ -38,9 +38,14 @@ export function factForDay(date: Date, facts: DragonFact[] = FACTS): DragonFact 
   const ids = facts.map(f => f.id).sort();
   const day = localDayNumber(date);
   const n = ids.length;
+  const byId = (id: string) => facts.find(f => f.id === id)!;
+  // Two facts simply alternate. (The boundary swap below would also move the
+  // last fact of a two-fact cycle, so it can't guarantee no repeats there.)
+  if (n === 2) return byId(ids[((day % 2) + 2) % 2]);
   const cycle = Math.floor(day / n);
   const order = cycleOrder(ids, cycle);
-  if (n > 1 && order[0] === cycleOrder(ids, cycle - 1)[n - 1]) [order[0], order[1]] = [order[1], order[0]];
-  const id = order[((day % n) + n) % n];
-  return facts.find(f => f.id === id)!;
+  // Swapping the first two never moves the last one when n >= 3, so the
+  // previous cycle's raw order ends with the same fact as its corrected order.
+  if (n > 2 && order[0] === cycleOrder(ids, cycle - 1)[n - 1]) [order[0], order[1]] = [order[1], order[0]];
+  return byId(order[((day % n) + n) % n]);
 }
