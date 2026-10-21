@@ -20,7 +20,7 @@ export function SymptomCheckIn({ onComplete, checkedInToday }: SymptomCheckInPro
 
   if (checkedInToday && !isEditing) {
     return (
-      <div className="bg-white rounded-3xl p-8 shadow-xl border border-dragon-gold/10 text-center">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-dragon-gold/10 text-center">
         <div className="bg-rose-50 p-4 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
           <Heart className="w-8 h-8 text-rose-500 fill-rose-500" />
         </div>
@@ -30,7 +30,7 @@ export function SymptomCheckIn({ onComplete, checkedInToday }: SymptomCheckInPro
         </p>
         <button
           onClick={() => setIsEditing(true)}
-          className="mt-4 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
+          className="mt-4 min-h-11 px-4 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
         >
           Update today's check-in
         </button>
@@ -39,7 +39,7 @@ export function SymptomCheckIn({ onComplete, checkedInToday }: SymptomCheckInPro
   }
 
   return (
-    <div className="bg-white rounded-3xl p-8 shadow-xl border border-dragon-gold/10">
+    <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-dragon-gold/10">
       <div className="flex items-center gap-2 text-rose-500 mb-6">
         <Heart className="w-6 h-6" />
         <h2 className="serif text-2xl font-bold">Daily Check-in</h2>

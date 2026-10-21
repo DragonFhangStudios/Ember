@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, TrendingUp, Trophy, Plus, ChevronDown, Palette } from 'lucide-react';
+import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, TrendingUp, Trophy, Plus, ChevronDown } from 'lucide-react';
 import { UserState, DragonStage, Quest, CosmeticItem, CustomQuestType } from './types';
 import {
   ActionResult,
@@ -32,6 +32,8 @@ import { CustomQuestForm } from './components/CustomQuestForm';
 import { BondingActions } from './components/BondingActions';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
+import { SettingsSheet } from './components/SettingsSheet';
+import { FeedbackToast } from './components/FeedbackToast';
 import { cn } from './lib/utils';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
@@ -70,12 +72,14 @@ function newFocusSessionId(): string {
 
 const DAY_CHECK_INTERVAL_MS = 30_000;
 const FOCUS_TICK_MS = 250;
+const FEEDBACK_MS = 4000;
 
 /**
  * 'preview' = saving isn't possible right now; nothing can change until it is.
  * 'recovery' = an existing save couldn't be read; nothing was created or changed.
  */
 type SaveMode = 'loading' | 'ready' | 'preview' | 'recovery';
+type Tab = 'dashboard' | 'focus' | 'checkin' | 'wardrobe' | 'insights' | 'badges';
 
 export default function App() {
   const [state, setState] = useState<UserState | null>(null);
@@ -88,8 +92,10 @@ export default function App() {
   const gateRef = useRef(createRevisionGate());
   const epochRef = useRef(0);
   const deviceIdRef = useRef(getDeviceId());
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'focus' | 'checkin' | 'wardrobe' | 'insights' | 'badges'>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const tabContentRef = useRef<HTMLDivElement>(null);
   const [showCustomQuest, setShowCustomQuest] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isPetted, setIsPetted] = useState(false);
   const [petFlavorText, setPetFlavorText] = useState<string | null>(null);
@@ -101,7 +107,7 @@ export default function App() {
   const saveModeRef = useRef<SaveMode>('loading');
   saveModeRef.current = saveMode;
 
-  const showFlavorText = (text: string, durationMs = 3000) => {
+  const showFlavorText = (text: string, durationMs = FEEDBACK_MS) => {
     setPetFlavorText(text);
     if (flavorTimeoutRef.current) clearTimeout(flavorTimeoutRef.current);
     flavorTimeoutRef.current = setTimeout(() => setPetFlavorText(null), durationMs);
@@ -332,6 +338,18 @@ export default function App() {
     }));
     setActiveTab('dashboard');
     setShowResetConfirm(false);
+    setShowSettings(false);
+  };
+
+  const closeSettings = useCallback(() => setShowSettings(false), []);
+
+  // On a phone the tab content sits below the dragon, so bring it into view
+  // when the player picks a tab (Home goes back to the top).
+  const selectTab = (tab: Tab) => {
+    setActiveTab(tab);
+    const behavior: ScrollBehavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    if (tab === 'dashboard') window.scrollTo({ top: 0, behavior });
+    else tabContentRef.current?.scrollIntoView({ block: 'start', behavior });
   };
 
   const handlePet = () => {
@@ -372,7 +390,7 @@ export default function App() {
           {saveMode === 'recovery' ? (
             <RecoveryNotice onRetry={() => setOpenAttempt(n => n + 1)} onStartFresh={() => setStartFresh(true)} />
           ) : saveMode === 'preview' ? (
-            <SaveStatusBanner preview error={null} onRetry={() => setOpenAttempt(n => n + 1)} onDismissError={() => {}} />
+            <SaveStatusBanner preview onRetry={() => setOpenAttempt(n => n + 1)} />
           ) : (
             <p className="serif text-xl text-dragon-muted text-center">{saveError ?? 'Waking Ember…'}</p>
           )}
@@ -381,89 +399,29 @@ export default function App() {
     );
   }
 
-  const BACKGROUND_COLORS = [
-    { name: 'Warm White', value: '#F5F5F0' },
-    { name: 'Soft Blue', value: '#EBF5FF' },
-    { name: 'Mint Green', value: '#F0FFF4' },
-    { name: 'Lavender', value: '#F5F3FF' },
-    { name: 'Peach', value: '#FFF5F5' },
-    { name: 'Sunset', value: '#FFF7ED' },
-  ];
-
   return (
-    <div className="min-h-screen transition-colors duration-700 pb-24 bg-app-custom" style={{ backgroundColor: state.themeColor }}>
-      <header className="bg-[var(--card-bg)]/80 backdrop-blur-md sticky top-0 z-50 border-b border-[var(--border-color)] px-6 py-4 transition-colors">
-        <div className="max-w-2xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-dragon-ember rounded-lg flex items-center justify-center">
+    <div className="pb-nav min-h-screen transition-colors duration-700 bg-app-custom" style={{ backgroundColor: state.themeColor }}>
+      <header className="safe-top bg-[var(--card-bg)]/80 backdrop-blur-md sticky top-0 z-50 border-b border-[var(--border-color)] transition-colors">
+        <div className="max-w-2xl mx-auto flex justify-between items-center gap-2 px-page py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 flex-shrink-0 bg-dragon-ember rounded-lg flex items-center justify-center">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             <h1 className="serif text-2xl font-bold text-[var(--text-primary)]">Ember</h1>
           </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={handleToggleDarkMode}
-              className="p-2 rounded-lg text-dragon-muted hover:text-dragon-ink transition-colors"
-              title="Toggle Dark Mode"
-            >
-              {state.isDarkMode ? <Sparkles className="w-6 h-6" /> : <Palette className="w-6 h-6" />}
-            </button>
-            <button 
-              onClick={() => setShowResetConfirm(true)}
-              className="p-2 rounded-lg text-dragon-muted hover:text-red-500 transition-colors"
-              title="Reset Progress"
-            >
-              <Settings className="w-6 h-6" />
-            </button>
-            <div className="h-6 w-px bg-dragon-gold/20 mx-1" />
-            <button 
-              onClick={() => setActiveTab('insights')}
-              className={cn("p-2 rounded-lg transition-colors", activeTab === 'insights' ? "bg-dragon-gold/10 text-dragon-gold" : "text-dragon-muted hover:text-dragon-ink")}
-            >
-              <TrendingUp className="w-6 h-6" />
-            </button>
-            <button 
-              onClick={() => setActiveTab('badges')}
-              className={cn("p-2 rounded-lg transition-colors", activeTab === 'badges' ? "bg-dragon-gold/10 text-dragon-gold" : "text-dragon-muted hover:text-dragon-ink")}
-            >
-              <Trophy className="w-6 h-6" />
-            </button>
-            <div className="h-6 w-px bg-dragon-gold/20 mx-1" />
-            <div className="flex gap-1 items-center">
-              <input 
-                type="color" 
-                value={state.themeColor || '#F5F5F0'} 
-                onChange={(e) => handleUpdateTheme(e.target.value)}
-                className="w-6 h-6 rounded-full border-none cursor-pointer bg-transparent"
-                title="Custom Background Color"
-              />
-              {BACKGROUND_COLORS.map((color) => (
-                <button
-                  key={color.value}
-                  onClick={() => handleUpdateTheme(color.value)}
-                  className={cn(
-                    "w-6 h-6 rounded-full border-2 transition-all",
-                    state.themeColor === color.value ? "border-dragon-gold scale-110 shadow-sm" : "border-transparent hover:scale-105"
-                  )}
-                  style={{ backgroundColor: color.value }}
-                  title={color.name}
-                />
-              ))}
-            </div>
+          <div className="flex items-center gap-1">
+            <HeaderButton active={activeTab === 'insights'} onClick={() => selectTab('insights')} icon={TrendingUp} label="Insights" />
+            <HeaderButton active={activeTab === 'badges'} onClick={() => selectTab('badges')} icon={Trophy} label="Milestones" />
+            <HeaderButton onClick={() => setShowSettings(true)} icon={Settings} label="Settings" />
           </div>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-6 pt-8">
-        <SaveStatusBanner
-          preview={isPreview}
-          error={saveError}
-          onRetry={() => setOpenAttempt(n => n + 1)}
-          onDismissError={() => setSaveError(null)}
-        />
+      <main className="max-w-2xl mx-auto px-page pt-6 sm:pt-8">
+        <SaveStatusBanner preview={isPreview} onRetry={() => setOpenAttempt(n => n + 1)} />
         <StatsHeader userState={state} />
 
-        <div className="bg-[var(--card-bg)] rounded-3xl p-8 shadow-xl border border-[var(--border-color)] mb-8 relative overflow-hidden min-h-[75vh] flex flex-col items-center justify-center transition-colors">
+        <div className="bg-[var(--card-bg)] rounded-3xl p-5 sm:p-8 shadow-xl border border-[var(--border-color)] mb-8 relative overflow-hidden min-h-[75vh] flex flex-col items-center justify-center transition-colors">
           <div className="absolute top-0 right-0 w-32 h-32 bg-dragon-gold/5 rounded-full -mr-16 -mt-16 blur-3xl" />
           <div className="absolute bottom-0 left-0 w-32 h-32 bg-dragon-ember/5 rounded-full -ml-16 -mb-16 blur-3xl" />
           
@@ -484,17 +442,6 @@ export default function App() {
             stage={state.stage}
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
-
-          {petFlavorText && (
-            <motion.p
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="mt-4 text-sm text-dragon-ember font-medium italic"
-            >
-              {petFlavorText}
-            </motion.p>
-          )}
 
           {state.isNapping && (
             <motion.div 
@@ -520,6 +467,8 @@ export default function App() {
           </div>
         </div>
 
+        {/* Where a picked tab scrolls to (see selectTab). */}
+        <div ref={tabContentRef} aria-hidden="true" className="scroll-below-header" />
         <AnimatePresence mode="wait">
           {activeTab === 'dashboard' && (
             <motion.div
@@ -533,7 +482,7 @@ export default function App() {
                 <h2 className="serif text-2xl font-bold text-[var(--text-primary)]">Daily Quests</h2>
                 <button 
                   onClick={() => setShowCustomQuest(true)}
-                  className="flex items-center gap-1 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
+                  className="min-h-11 -mr-3 px-3 flex items-center gap-1 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
                 >
                   <Plus className="w-3 h-3" /> Add Custom
                 </button>
@@ -592,7 +541,7 @@ export default function App() {
       {/* Custom Quest Modal */}
       <AnimatePresence>
         {showCustomQuest && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
             <motion.div 
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
@@ -617,18 +566,30 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <SettingsSheet
+        isOpen={showSettings}
+        themeColor={state.themeColor}
+        isDarkMode={state.isDarkMode}
+        onClose={closeSettings}
+        onThemeChange={handleUpdateTheme}
+        onToggleDarkMode={handleToggleDarkMode}
+        onResetRequest={() => setShowResetConfirm(true)}
+      />
+
       <ResetConfirmationModal 
         isOpen={showResetConfirm} 
         onClose={() => setShowResetConfirm(false)} 
         onConfirm={handleResetProgress} 
       />
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-[var(--card-bg)]/80 backdrop-blur-lg border-t border-[var(--border-color)] px-6 py-3 z-50 transition-colors">
-        <div className="max-w-2xl mx-auto flex justify-around items-center">
-          <NavButton active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} icon={LayoutDashboard} label="Home" />
-          <NavButton active={activeTab === 'focus'} onClick={() => setActiveTab('focus')} icon={Timer} label="Focus" />
-          <NavButton active={activeTab === 'checkin'} onClick={() => setActiveTab('checkin')} icon={Heart} label="Check-in" />
-          <NavButton active={activeTab === 'wardrobe'} onClick={() => setActiveTab('wardrobe')} icon={ShoppingBag} label="Shop" />
+      <FeedbackToast message={petFlavorText} error={saveError} onDismissError={() => setSaveError(null)} />
+
+      <nav aria-label="Main" className="nav-safe fixed bottom-0 left-0 right-0 bg-[var(--card-bg)]/80 backdrop-blur-lg border-t border-[var(--border-color)] z-50 transition-colors">
+        <div className="max-w-2xl mx-auto h-[var(--nav-height)] flex items-stretch px-2">
+          <NavButton active={activeTab === 'dashboard'} onClick={() => selectTab('dashboard')} icon={LayoutDashboard} label="Home" />
+          <NavButton active={activeTab === 'focus'} onClick={() => selectTab('focus')} icon={Timer} label="Focus" />
+          <NavButton active={activeTab === 'checkin'} onClick={() => selectTab('checkin')} icon={Heart} label="Check-in" />
+          <NavButton active={activeTab === 'wardrobe'} onClick={() => selectTab('wardrobe')} icon={ShoppingBag} label="Shop" />
         </div>
       </nav>
     </div>
@@ -637,11 +598,29 @@ export default function App() {
 
 function NavButton({ active, onClick, icon: Icon, label }: { active: boolean, onClick: () => void, icon: any, label: string }) {
   return (
-    <button onClick={onClick} className={cn("flex flex-col items-center gap-1 transition-all", active ? "text-dragon-ember" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}>
-      <div className={cn("p-2 rounded-xl transition-all", active ? "bg-dragon-ember/10" : "bg-transparent")}>
+    <button
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={cn("flex-1 min-w-11 flex flex-col items-center justify-center gap-0.5 transition-all", active ? "text-dragon-ember" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}
+    >
+      <div className={cn("p-1.5 rounded-xl transition-all", active ? "bg-dragon-ember/10" : "bg-transparent")}>
         <Icon className="w-6 h-6" />
       </div>
-      <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
+      <span className="text-xs font-bold uppercase tracking-wide">{label}</span>
+    </button>
+  );
+}
+
+function HeaderButton({ active = false, onClick, icon: Icon, label }: { active?: boolean, onClick: () => void, icon: any, label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-current={active ? 'page' : undefined}
+      className={cn("w-11 h-11 rounded-xl flex items-center justify-center transition-colors", active ? "bg-dragon-gold/10 text-dragon-gold" : "text-dragon-muted hover:text-dragon-ink")}
+    >
+      <Icon className="w-6 h-6" />
     </button>
   );
 }

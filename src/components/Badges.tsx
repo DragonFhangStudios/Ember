@@ -37,9 +37,9 @@ export function Badges({ badges }: BadgesProps) {
                 {isUnlocked ? badge.icon : <Lock className="w-6 h-6 text-dragon-muted" />}
               </div>
               <h3 className="text-xs font-bold text-dragon-ink mb-1">{badge.name}</h3>
-              <p className="text-[10px] text-dragon-muted leading-tight">{badge.description}</p>
+              <p className="text-xs text-dragon-muted leading-tight">{badge.description}</p>
               {isUnlocked && (
-                <span className="mt-2 text-[8px] font-bold text-dragon-gold uppercase tracking-widest">
+                <span className="mt-2 text-[0.625rem] font-bold text-dragon-gold uppercase tracking-widest">
                   Unlocked!
                 </span>
               )}

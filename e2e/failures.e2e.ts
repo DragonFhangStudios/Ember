@@ -15,6 +15,7 @@ test('a failed save changes nothing, says so, and a retry succeeds', async ({ pa
   });
   await page.getByText('Morning Routine').click();
   await expect(page.getByText("couldn't save that just now", { exact: false })).toBeVisible();
+  await expect(page.getByRole('alert'), 'shown near the quest that was tapped').toBeInViewport();
   const saved = (await readSave(page))!.state;
   expect(saved.energy).toBe(50);
   expect(saved.quests.find((q: any) => q.id === 'q1').completed).toBe(false);
