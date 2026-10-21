@@ -19,7 +19,7 @@ import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/foc
 import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from './lib/store';
 import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
-import { DragonAvatar } from './components/DragonAvatar';
+import { DragonAvatar, Reaction } from './components/DragonAvatar';
 import { CELEBRATION_MS } from './components/Celebration';
 import { bondLevel, bondTotal } from './lib/evolution';
 import { StatsHeader } from './components/StatsHeader';
@@ -40,6 +40,8 @@ import { Dialog } from './components/Dialog';
 import { cn } from './lib/utils';
 import { THEME_HINT_KEY, ThemePreference, readableBackground, resolveDark } from './lib/theme';
 import { useSystemDark } from './lib/useMediaQuery';
+import { Spoken, createSpeaker, tapContext } from './lib/dialogue/select';
+import { Intent, Moment, daysAway, isSoftDay, momentFor, openingMoment } from './lib/dialogue/events';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
 const STORAGE_KEY = 'ember_user_state_v2';
@@ -78,6 +80,9 @@ function newFocusSessionId(): string {
 const DAY_CHECK_INTERVAL_MS = 30_000;
 const FOCUS_TICK_MS = 250;
 const FEEDBACK_MS = 4000;
+/** A little longer when Ember says something, so there's time to read it. */
+const SPEECH_MS = 5500;
+const REACTION_MS = 2400;
 /** The evolution banner stays a little longer than the glow so it can be read. */
 const EVOLUTION_CELEBRATION_MS = 1500;
 
@@ -105,22 +110,38 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isPetted, setIsPetted] = useState(false);
-  const [petFlavorText, setPetFlavorText] = useState<string | null>(null);
-  const flavorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
+  const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ember's personality (#18): what he says, how he reacts, and context for both.
+  const speakerRef = useRef(createSpeaker());
+  const [reaction, setReaction] = useState<Reaction | null>(null);
+  const reactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const awayDaysRef = useRef(0);
+  const founderLineAtRef = useRef<number | null>(null);
   const [isLevelingUp, setIsLevelingUp] = useState(false);
   const [celebrateBond, setCelebrateBond] = useState(false);
-  const [celebrateMessage, setCelebrateMessage] = useState(false);
   const prevStageRef = useRef<DragonStage | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const settlingSessionRef = useRef<string | null>(null);
   const saveModeRef = useRef<SaveMode>('loading');
   saveModeRef.current = saveMode;
 
-  const showFlavorText = (text: string, durationMs = FEEDBACK_MS) => {
-    setPetFlavorText(text);
-    if (flavorTimeoutRef.current) clearTimeout(flavorTimeoutRef.current);
-    flavorTimeoutRef.current = setTimeout(() => setPetFlavorText(null), durationMs);
+  const showFeedback = (message: string | null, speech: Spoken | null = null, celebrate = false) => {
+    setFeedback({ message, speech, celebrate });
+    if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+    feedbackTimeoutRef.current = setTimeout(() => setFeedback({ message: null, speech: null }), speech ? SPEECH_MS : FEEDBACK_MS);
+    if (speech) {
+      setReaction({ expression: speech.expression, key: Date.now() });
+      if (reactionTimeoutRef.current) clearTimeout(reactionTimeoutRef.current);
+      reactionTimeoutRef.current = setTimeout(() => setReaction(null), REACTION_MS);
+    }
   };
+
+  /** Ember's line for a moment, softer on a hard day (a low-mood check-in today). */
+  const speak = (moment: Moment | null, s: UserState, now: Date): Spoken | null =>
+    moment
+      ? speakerRef.current.say(moment.context, { stage: s.stage, dragonName: s.dragonName, soft: isSoftDay(s, now), level: moment.level })
+      : null;
 
   const withDevice = (s: UserState): UserState => ({ ...s, deviceId: deviceIdRef.current });
 
@@ -142,10 +163,10 @@ export default function App() {
    * the latest saved state (a focus session that ended, a new day), applies
    * the action, and unlocks badges. The UI changes only after the commit.
    */
-  const commit = useCallback((action?: (current: UserState, now: Date) => ActionResult) => {
+  const commit = useCallback((action?: (current: UserState, now: Date) => ActionResult, intent?: Intent) => {
     const store = storeRef.current;
     if (!store) {
-      if (action && saveModeRef.current === 'preview') showFlavorText("Preview mode: that wasn't saved.");
+      if (action && saveModeRef.current === 'preview') showFeedback("Preview mode: that wasn't saved.");
       return Promise.resolve(null);
     }
     const epoch = epochRef.current;
@@ -153,12 +174,15 @@ export default function App() {
     let messages: string[] = [];
     let bondLevelUp = false;
     let milestones = false;
+    let before: UserState | null = null;
+    let after: UserState | null = null;
     return store
       .update(saved => {
         messages = [];
         bondLevelUp = false;
         milestones = false;
         const current = withDevice(saved);
+        before = current;
         const settled = settle(current, now);
         if (settled.message) messages.push(settled.message);
         let next = settled.state;
@@ -175,15 +199,19 @@ export default function App() {
           milestones = true;
           messages.push(`🏅 Milestone unlocked: ${unlocked.map(b => b.name).join(', ')}`);
         }
+        after = next;
         return next === current ? saved : next;
       })
       .then(
         result => {
           if (!show(epoch, result)) return null; // a replaced store's late result
           setSaveError(null);
-          if (messages.length) showFlavorText(messages.join(' '));
+          // What Ember says about it (dialogue never changes the save).
+          let moment = before && after ? momentFor(before, after, intent, now, awayDaysRef.current) : null;
+          if (!moment && intent === 'open') moment = openingMoment(result.state, awayDaysRef.current, now);
+          const speech = speak(moment, result.state, now);
+          if (messages.length || speech) showFeedback(messages.length ? messages.join(' ') : null, speech, milestones);
           if (bondLevelUp) celebrate(setCelebrateBond);
-          if (milestones) celebrate(setCelebrateMessage);
           return result;
         },
         error => {
@@ -194,7 +222,7 @@ export default function App() {
       );
   }, [show]);
 
-  const runAction = (action: (current: UserState, now: Date) => ActionResult) => commit(action);
+  const runAction = (action: (current: UserState, now: Date) => ActionResult, intent?: Intent) => commit(action, intent);
   const update = (fn: (current: UserState) => UserState) => commit(current => ({ state: fn(current) }));
 
   // Open the save store (migrating the old localStorage save on first run).
@@ -229,7 +257,9 @@ export default function App() {
         show(epoch, initial);
         setSaveMode('ready');
         unsubscribe = store.subscribe(result => show(epoch, result));
-        commit();
+        // How long the player was away (before today's rollover), so Ember can say hello.
+        awayDaysRef.current = daysAway(initial.state, new Date());
+        commit(undefined, 'open');
       },
       error => {
         if (cancelled) return;
@@ -326,7 +356,7 @@ export default function App() {
   }, [commit]);
 
   const handleUpdateQuestProgress = (id: string, increment: number = 1) => {
-    runAction((current, now) => advanceQuest(current, id, now, increment));
+    runAction((current, now) => advanceQuest(current, id, now, increment), 'quest');
   };
 
   const handleAddCustomQuest = (quest: Quest) => {
@@ -388,7 +418,7 @@ export default function App() {
 
   const handlePet = () => {
     const petCountBefore = state?.petCount;
-    runAction(petDragon).then(result => {
+    runAction(petDragon, 'pet').then(result => {
       if (result && result.state.petCount !== petCountBefore) {
         setIsPetted(true);
         setTimeout(() => setIsPetted(false), 1000);
@@ -396,20 +426,36 @@ export default function App() {
     });
   };
 
-  const handleFeed = () => runAction(feedDragon);
+  const handleFeed = () => runAction(feedDragon, 'feed');
+
+  // Tap Ember to hear a musing. Talking never changes the save.
+  const handleTalk = () => {
+    if (!state) return;
+    const now = Date.now();
+    const context = tapContext({
+      napping: state.isNapping,
+      soft: isSoftDay(state, new Date(now)),
+      developerBuild: import.meta.env.DEV,
+      random: Math.random(),
+      msSinceFounderLine: founderLineAtRef.current === null ? null : now - founderLineAtRef.current,
+      stage: state.stage,
+    });
+    founderLineAtRef.current = context === 'founder' ? now : null;
+    showFeedback(null, speak({ context }, state, new Date(now)));
+  };
 
   const handleCheckInComplete = (energy: number, mood: number) => {
-    runAction((current, now) => logCheckIn(current, energy, mood, now));
+    runAction((current, now) => logCheckIn(current, energy, mood, now), 'checkIn');
   };
 
   const handleFocusStart = () => {
     const id = newFocusSessionId();
-    runAction((current, now) => ({ state: startFocus(current, id, now) })).then(() => setNowMs(Date.now()));
+    runAction((current, now) => ({ state: startFocus(current, id, now) }), 'focusStart').then(() => setNowMs(Date.now()));
   };
 
   const handleFocusPause = () => {
     const id = focusTimer.id;
-    if (id) runAction((current, now) => ({ state: pauseFocus(current, id, now) }));
+    if (id) runAction((current, now) => ({ state: pauseFocus(current, id, now) }), 'focusPause');
   };
 
   const handleFocusReset = () => {
@@ -461,6 +507,9 @@ export default function App() {
           
           <DragonAvatar 
             stage={state.stage} 
+            name={state.dragonName}
+            onTalk={handleTalk}
+            reaction={reaction}
             isNapping={state.isNapping} 
             isMeditating={isFocusActive}
             isPetted={isPetted}
@@ -484,7 +533,7 @@ export default function App() {
               className="mt-6 p-4 bg-surface-muted rounded-2xl text-center border border-line"
             >
               <p className="text-sm text-fg-muted">
-                {state.dragonName} curled up for a nap while you were away. Welcome back! Say hi or complete a quest to wake them up.
+                {state.dragonName} curled up for a nap while you were away. Welcome back! Pet him or complete a quest to wake him up.
               </p>
             </motion.div>
           )}
@@ -602,7 +651,7 @@ export default function App() {
         onConfirm={handleResetProgress} 
       />
 
-      <FeedbackToast message={petFlavorText} celebrate={celebrateMessage} error={saveError} onDismissError={() => setSaveError(null)} />
+      <FeedbackToast speech={feedback.speech} message={feedback.message} celebrate={feedback.celebrate} error={saveError} onDismissError={() => setSaveError(null)} />
 
       <nav aria-label="Main" className="nav-safe fixed bottom-0 left-0 right-0 bg-surface/80 backdrop-blur-lg border-t border-line z-50 transition-colors">
         <div className="max-w-2xl mx-auto h-[var(--nav-height)] flex items-stretch px-2">
