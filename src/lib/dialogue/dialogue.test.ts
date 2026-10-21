@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DragonStage, UserState } from '../../types';
 import { COMPLETED_FOCUS_SESSIONS_KEPT, advanceQuest, createInitialState, feedDragon, logCheckIn, petDragon } from '../progression';
 import { settle, startFocus, pauseFocus } from '../focusSession';
 import { DialogueContext, LIBRARY } from './library';
-import { FOUNDER_CAUGHT_MS, candidates, createSpeaker, render, tapContext, timeOfDay } from './select';
+import { FOUNDER_CAUGHT_MS, FOUNDER_CHANCE, candidates, founderChance, createSpeaker, render, tapContext, timeOfDay } from './select';
 import { LONG_AWAY_DAYS, isSoftDay, momentFor, openingMoment } from './events';
 
 const { EGG, HATCHLING, FLEDGLING, DRAKE, ANCIENT } = DragonStage;
@@ -178,6 +178,15 @@ describe('choosing lines', () => {
     expect(tapContext({ ...sure, napping: true }), 'napping').toBe('return.napping');
   });
 
+  it('never lets Part B (caught) happen once something meaningful starts', () => {
+    const pending = { napping: false, soft: false, busy: false, stage: HATCHLING, random: 0.5, chance: 0, msSinceFounderLine: 1000 };
+    expect(tapContext(pending)).toBe('founder.caught');
+    expect(tapContext({ ...pending, soft: true }), 'a low-mood check-in').toBe('idle');
+    expect(tapContext({ ...pending, busy: true }), 'a focus session, running or paused').toBe('idle');
+    expect(tapContext({ ...pending, napping: true }), 'napping').toBe('return.napping');
+    expect(tapContext({ ...pending, stage: EGG }), 'the egg').toBe('idle');
+  });
+
   it("keeps the founder's exact words", () => {
     expect(render(LIBRARY.founder[0].text, as(HATCHLING))).toMatch(/\* Dad went to work, so I'm helping build myself!$/);
     expect(render(LIBRARY['founder.caught'][0].text, as(HATCHLING))).toMatch(/\* I WAS JUST LOOKING!!!$/);
@@ -281,5 +290,28 @@ describe('moments', () => {
     expect(openingMoment(fresh(), 1, NOW).context).toBe('return.oneDay');
     expect(openingMoment(fresh(), 0, NOW).context).toBe('greeting.morning');
     expect(openingMoment(fresh(), 0, new Date(2026, 9, 21, 23)).context).toBe('greeting.lateNight');
+  });
+});
+
+describe('Easter egg chance override', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete (globalThis as { __emberEasterEggChance?: unknown }).__emberEasterEggChance;
+  });
+
+  it('is accepted in development and test builds', () => {
+    (globalThis as { __emberEasterEggChance?: unknown }).__emberEasterEggChance = 1;
+    expect(founderChance()).toBe(1);
+  });
+
+  it('is ignored in production builds', () => {
+    vi.stubEnv('DEV', false);
+    (globalThis as { __emberEasterEggChance?: unknown }).__emberEasterEggChance = 1;
+    expect(founderChance()).toBe(FOUNDER_CHANCE);
+  });
+
+  it('falls back to the normal chance without a numeric override', () => {
+    (globalThis as { __emberEasterEggChance?: unknown }).__emberEasterEggChance = '1';
+    expect(founderChance()).toBe(FOUNDER_CHANCE);
   });
 });

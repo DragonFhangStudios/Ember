@@ -40,7 +40,7 @@ import { Dialog } from './components/Dialog';
 import { cn } from './lib/utils';
 import { THEME_HINT_KEY, ThemePreference, readableBackground, resolveDark } from './lib/theme';
 import { useSystemDark } from './lib/useMediaQuery';
-import { FOUNDER_CAUGHT_MS, FOUNDER_CHANCE, Spoken, createSpeaker, tapContext } from './lib/dialogue/select';
+import { FOUNDER_CAUGHT_MS, Spoken, createSpeaker, founderChance, tapContext } from './lib/dialogue/select';
 import { Intent, Moment, daysAway, isSoftDay, momentFor, openingMoment } from './lib/dialogue/events';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
@@ -85,15 +85,6 @@ const SPEECH_MS = 5500;
 const REACTION_MS = 2400;
 /** How long Ember stays startled after being caught at the keyboard. */
 const BUSTED_MS = 3000;
-
-/**
- * How likely a tap finds Ember at the keyboard. Browser tests set
- * `window.__emberEasterEggChance` (0 or 1) so they never depend on chance.
- */
-function easterEggChance(): number {
-  const override = (window as { __emberEasterEggChance?: unknown }).__emberEasterEggChance;
-  return typeof override === 'number' ? override : FOUNDER_CHANCE;
-}
 /** The evolution banner stays a little longer than the glow so it can be read. */
 const EVOLUTION_CELEBRATION_MS = 1500;
 
@@ -142,12 +133,33 @@ export default function App() {
   const saveModeRef = useRef<SaveMode>('loading');
   saveModeRef.current = saveMode;
 
-  const showFeedback = (message: string | null, speech: Spoken | null = null, celebrate = false, fromTap = false) => {
+  const showAntic = (next: Antic, durationMs: number) => {
+    setAntic(next);
+    if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
+    anticTimeoutRef.current = setTimeout(() => setAntic(null), durationMs);
+  };
+
+  /** Ends the keyboard Easter egg, if it's going: no Part B after this. */
+  const cancelEasterEgg = () => {
+    founderLineAtRef.current = null;
+    if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
+    setAntic(null);
+  };
+
+  /**
+   * Shows a message and/or Ember's line. A wellness message (`holds`: anything
+   * from the player's actions) stays for its full time: taps on Ember wait
+   * until it's gone, and it ends the keyboard Easter egg.
+   */
+  const showFeedback = (message: string | null, speech: Spoken | null = null, celebrate = false, holds = true) => {
     const duration = speech ? SPEECH_MS : FEEDBACK_MS;
     setFeedback({ message, speech, celebrate });
     if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
     feedbackTimeoutRef.current = setTimeout(() => setFeedback({ message: null, speech: null }), duration);
-    if (!fromTap) momentShowingUntilRef.current = Date.now() + duration;
+    if (holds) {
+      momentShowingUntilRef.current = Date.now() + duration;
+      cancelEasterEgg();
+    }
     if (speech) {
       setReaction({ expression: speech.expression, key: Date.now() });
       if (reactionTimeoutRef.current) clearTimeout(reactionTimeoutRef.current);
@@ -187,6 +199,8 @@ export default function App() {
       if (action && saveModeRef.current === 'preview') showFeedback("Preview mode: that wasn't saved.");
       return Promise.resolve(null);
     }
+    // Any care, quest, check-in, or focus action ends the keyboard Easter egg.
+    if (action) cancelEasterEgg();
     const epoch = epochRef.current;
     const now = new Date();
     let messages: string[] = [];
@@ -228,7 +242,9 @@ export default function App() {
           let moment = before && after ? momentFor(before, after, intent, now, awayDaysRef.current) : null;
           if (!moment && intent === 'open') moment = openingMoment(result.state, awayDaysRef.current, now);
           const speech = speak(moment, result.state, now);
-          if (messages.length || speech) showFeedback(messages.length ? messages.join(' ') : null, speech, milestones);
+          // Just saying hello when the app opens doesn't hold: a tap can answer it.
+          const greetingOnly = intent === 'open' && !messages.length;
+          if (messages.length || speech) showFeedback(messages.length ? messages.join(' ') : null, speech, milestones, !greetingOnly);
           if (bondLevelUp) celebrate(setCelebrateBond);
           return result;
         },
@@ -319,6 +335,16 @@ export default function App() {
   }, [focusRunning]);
   const focusTimer = focusView(focus, nowMs);
   const isFocusActive = focusTimer.status === 'running';
+  const focusOngoing = focusTimer.status === 'running' || focusTimer.status === 'paused';
+
+  // The keyboard Easter egg gives way to anything meaningful: a low-mood
+  // check-in (from any tab), a nap, a focus session starting or pausing,
+  // another tab, or a dialog. Ember just puts the keyboard away.
+  const softDay = state ? isSoftDay(state, new Date()) : false;
+  const napping = state?.isNapping ?? false;
+  useEffect(() => {
+    cancelEasterEgg();
+  }, [softDay, napping, focusOngoing, activeTab, showCustomQuest, showSettings, showResetConfirm]);
 
   // When the session's end time passes, settle it. Any tab may do this; the
   // store transaction makes sure it's rewarded once.
@@ -447,34 +473,26 @@ export default function App() {
   const handleFeed = () => runAction(feedDragon, 'feed');
 
   // Tap Ember to hear a musing. Talking never changes the save.
-  const showAntic = (next: Antic, durationMs: number) => {
-    setAntic(next);
-    if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
-    anticTimeoutRef.current = setTimeout(() => setAntic(null), durationMs);
-  };
-
   const handleTalk = () => {
     if (!state) return;
     const now = Date.now();
+    // A quest, check-in, or other wellness message stays until it finishes.
+    if (now < momentShowingUntilRef.current) return;
     const context = tapContext({
       napping: state.isNapping,
       soft: isSoftDay(state, new Date(now)),
-      // Never interrupt a focus session or another moment's message.
-      busy: focusTimer.status === 'running' || now < momentShowingUntilRef.current,
+      busy: focusOngoing,
       stage: state.stage,
       random: Math.random(),
-      chance: easterEggChance(),
+      chance: founderChance(),
       msSinceFounderLine: founderLineAtRef.current === null ? null : now - founderLineAtRef.current,
     });
-    founderLineAtRef.current = context === 'founder' ? now : null;
     // The keyboard Easter egg: Part A, typing away; Part B, caught.
     if (context === 'founder') showAntic('typing', FOUNDER_CAUGHT_MS);
     else if (context === 'founder.caught') showAntic('busted', BUSTED_MS);
-    else if (antic) {
-      setAntic(null);
-      if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
-    }
-    showFeedback(null, speak({ context }, state, new Date(now)), false, true);
+    else cancelEasterEgg();
+    founderLineAtRef.current = context === 'founder' ? now : null;
+    showFeedback(null, speak({ context }, state, new Date(now)), false, false);
   };
 
   const handleCheckInComplete = (energy: number, mood: number) => {

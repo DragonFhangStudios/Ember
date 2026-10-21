@@ -105,11 +105,26 @@ export const FOUNDER_CHANCE = 1 / 25;
 export const FOUNDER_CAUGHT_MS = 8000;
 
 /**
+ * How likely a tap finds Ember at the keyboard. Development and test builds
+ * accept `__emberEasterEggChance` (0 or 1) so browser tests never depend on
+ * chance; production builds compile the override out and always use
+ * FOUNDER_CHANCE.
+ */
+export function founderChance(): number {
+  if (import.meta.env.DEV) {
+    const override = (globalThis as { __emberEasterEggChance?: unknown }).__emberEasterEggChance;
+    if (typeof override === 'number') return override;
+  }
+  return FOUNDER_CHANCE;
+}
+
+/**
  * What a tap on Ember says. Rarely, he's caught "helping" build himself: the
- * DFS founder Easter egg (a fun discovery, not a wellness message). It only
- * happens to a hatched dragon, never on a hard day, and never while something
- * meaningful is going on (a focus session, or another moment's message still
- * showing). `chance` is FOUNDER_CHANCE in the app; tests pass 0 or 1.
+ * DFS founder Easter egg (a fun discovery, not a wellness message). Both
+ * halves only happen to a hatched dragon, never on a hard day, and never while
+ * something meaningful is going on (a focus session, running or paused):
+ * then a tap is just an ordinary musing. `chance` is founderChance() in the
+ * app; tests pass 0 or 1.
  */
 export function tapContext(opts: {
   napping: boolean;
@@ -121,7 +136,7 @@ export function tapContext(opts: {
   msSinceFounderLine: number | null;
 }): DialogueContext {
   if (opts.napping) return 'return.napping';
+  if (opts.stage === DragonStage.EGG || opts.soft || opts.busy) return 'idle';
   if (opts.msSinceFounderLine !== null && opts.msSinceFounderLine <= FOUNDER_CAUGHT_MS) return 'founder.caught';
-  const allowed = opts.stage !== DragonStage.EGG && !opts.soft && !opts.busy;
-  return allowed && opts.random < opts.chance ? 'founder' : 'idle';
+  return opts.random < opts.chance ? 'founder' : 'idle';
 }
