@@ -19,7 +19,7 @@ import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/foc
 import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from './lib/store';
 import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
-import { DragonAvatar, Reaction } from './components/DragonAvatar';
+import { Antic, DragonAvatar, Reaction } from './components/DragonAvatar';
 import { CELEBRATION_MS } from './components/Celebration';
 import { bondLevel, bondTotal } from './lib/evolution';
 import { StatsHeader } from './components/StatsHeader';
@@ -40,7 +40,7 @@ import { Dialog } from './components/Dialog';
 import { cn } from './lib/utils';
 import { THEME_HINT_KEY, ThemePreference, readableBackground, resolveDark } from './lib/theme';
 import { useSystemDark } from './lib/useMediaQuery';
-import { Spoken, createSpeaker, tapContext } from './lib/dialogue/select';
+import { FOUNDER_CAUGHT_MS, FOUNDER_CHANCE, Spoken, createSpeaker, tapContext } from './lib/dialogue/select';
 import { Intent, Moment, daysAway, isSoftDay, momentFor, openingMoment } from './lib/dialogue/events';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
@@ -83,6 +83,17 @@ const FEEDBACK_MS = 4000;
 /** A little longer when Ember says something, so there's time to read it. */
 const SPEECH_MS = 5500;
 const REACTION_MS = 2400;
+/** How long Ember stays startled after being caught at the keyboard. */
+const BUSTED_MS = 3000;
+
+/**
+ * How likely a tap finds Ember at the keyboard. Browser tests set
+ * `window.__emberEasterEggChance` (0 or 1) so they never depend on chance.
+ */
+function easterEggChance(): number {
+  const override = (window as { __emberEasterEggChance?: unknown }).__emberEasterEggChance;
+  return typeof override === 'number' ? override : FOUNDER_CHANCE;
+}
 /** The evolution banner stays a little longer than the glow so it can be read. */
 const EVOLUTION_CELEBRATION_MS = 1500;
 
@@ -118,6 +129,11 @@ export default function App() {
   const reactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const awayDaysRef = useRef(0);
   const founderLineAtRef = useRef<number | null>(null);
+  // The keyboard Easter egg's visual state (never saved).
+  const [antic, setAntic] = useState<Antic | null>(null);
+  const anticTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Until when another moment's message (a quest, check-in, …) is showing.
+  const momentShowingUntilRef = useRef(0);
   const [isLevelingUp, setIsLevelingUp] = useState(false);
   const [celebrateBond, setCelebrateBond] = useState(false);
   const prevStageRef = useRef<DragonStage | null>(null);
@@ -126,10 +142,12 @@ export default function App() {
   const saveModeRef = useRef<SaveMode>('loading');
   saveModeRef.current = saveMode;
 
-  const showFeedback = (message: string | null, speech: Spoken | null = null, celebrate = false) => {
+  const showFeedback = (message: string | null, speech: Spoken | null = null, celebrate = false, fromTap = false) => {
+    const duration = speech ? SPEECH_MS : FEEDBACK_MS;
     setFeedback({ message, speech, celebrate });
     if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
-    feedbackTimeoutRef.current = setTimeout(() => setFeedback({ message: null, speech: null }), speech ? SPEECH_MS : FEEDBACK_MS);
+    feedbackTimeoutRef.current = setTimeout(() => setFeedback({ message: null, speech: null }), duration);
+    if (!fromTap) momentShowingUntilRef.current = Date.now() + duration;
     if (speech) {
       setReaction({ expression: speech.expression, key: Date.now() });
       if (reactionTimeoutRef.current) clearTimeout(reactionTimeoutRef.current);
@@ -429,19 +447,34 @@ export default function App() {
   const handleFeed = () => runAction(feedDragon, 'feed');
 
   // Tap Ember to hear a musing. Talking never changes the save.
+  const showAntic = (next: Antic, durationMs: number) => {
+    setAntic(next);
+    if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
+    anticTimeoutRef.current = setTimeout(() => setAntic(null), durationMs);
+  };
+
   const handleTalk = () => {
     if (!state) return;
     const now = Date.now();
     const context = tapContext({
       napping: state.isNapping,
       soft: isSoftDay(state, new Date(now)),
-      developerBuild: import.meta.env.DEV,
-      random: Math.random(),
-      msSinceFounderLine: founderLineAtRef.current === null ? null : now - founderLineAtRef.current,
+      // Never interrupt a focus session or another moment's message.
+      busy: focusTimer.status === 'running' || now < momentShowingUntilRef.current,
       stage: state.stage,
+      random: Math.random(),
+      chance: easterEggChance(),
+      msSinceFounderLine: founderLineAtRef.current === null ? null : now - founderLineAtRef.current,
     });
     founderLineAtRef.current = context === 'founder' ? now : null;
-    showFeedback(null, speak({ context }, state, new Date(now)));
+    // The keyboard Easter egg: Part A, typing away; Part B, caught.
+    if (context === 'founder') showAntic('typing', FOUNDER_CAUGHT_MS);
+    else if (context === 'founder.caught') showAntic('busted', BUSTED_MS);
+    else if (antic) {
+      setAntic(null);
+      if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
+    }
+    showFeedback(null, speak({ context }, state, new Date(now)), false, true);
   };
 
   const handleCheckInComplete = (energy: number, mood: number) => {
@@ -510,6 +543,7 @@ export default function App() {
             name={state.dragonName}
             onTalk={handleTalk}
             reaction={reaction}
+            antic={antic}
             isNapping={state.isNapping} 
             isMeditating={isFocusActive}
             isPetted={isPetted}

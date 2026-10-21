@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DragonStage, UserState } from '../../types';
-import { advanceQuest, createInitialState, feedDragon, logCheckIn, petDragon } from '../progression';
+import { COMPLETED_FOCUS_SESSIONS_KEPT, advanceQuest, createInitialState, feedDragon, logCheckIn, petDragon } from '../progression';
 import { settle, startFocus, pauseFocus } from '../focusSession';
 import { DialogueContext, LIBRARY } from './library';
 import { FOUNDER_CAUGHT_MS, candidates, createSpeaker, render, tapContext, timeOfDay } from './select';
@@ -159,16 +159,28 @@ describe('choosing lines', () => {
     }
   });
 
-  it('keeps the founder Easter egg to developer builds (and gets caught if tapped again)', () => {
-    const base = { napping: false, soft: false, msSinceFounderLine: null, stage: HATCHLING };
-    expect(tapContext({ ...base, developerBuild: false, random: 0 })).toBe('idle');
-    expect(tapContext({ ...base, developerBuild: true, random: 0 })).toBe('founder');
-    expect(tapContext({ ...base, developerBuild: true, random: 0.5 })).toBe('idle');
-    expect(tapContext({ ...base, developerBuild: true, random: 0.5, msSinceFounderLine: FOUNDER_CAUGHT_MS })).toBe('founder.caught');
-    expect(tapContext({ ...base, developerBuild: true, random: 0.5, msSinceFounderLine: FOUNDER_CAUGHT_MS + 1 })).toBe('idle');
-    expect(tapContext({ ...base, developerBuild: true, random: 0, stage: EGG })).toBe('idle');
-    expect(tapContext({ ...base, developerBuild: true, random: 0, napping: true })).toBe('return.napping');
-    expect(tapContext({ ...base, developerBuild: true, random: 0, soft: true }), 'not on a hard day').toBe('idle');
+  it('finds Ember "helping" build himself rarely, and catches him if tapped again soon', () => {
+    const base = { napping: false, soft: false, busy: false, stage: HATCHLING, random: 0.5, chance: 1 / 25, msSinceFounderLine: null };
+    expect(tapContext({ ...base, random: 0.01 })).toBe('founder');
+    expect(tapContext({ ...base, random: 0.5 })).toBe('idle');
+    expect(tapContext({ ...base, chance: 1 }), 'tests can make it certain').toBe('founder');
+    expect(tapContext({ ...base, chance: 0, random: 0 }), '…or impossible').toBe('idle');
+    expect(tapContext({ ...base, msSinceFounderLine: FOUNDER_CAUGHT_MS })).toBe('founder.caught');
+    expect(tapContext({ ...base, msSinceFounderLine: FOUNDER_CAUGHT_MS + 1 })).toBe('idle');
+  });
+
+  it('keeps the Easter egg to good moments: hatched, not a hard day, not busy, not napping', () => {
+    const sure = { napping: false, soft: false, busy: false, stage: HATCHLING, random: 0, chance: 1, msSinceFounderLine: null };
+    expect(tapContext(sure)).toBe('founder');
+    expect(tapContext({ ...sure, stage: EGG }), 'the egg').toBe('idle');
+    expect(tapContext({ ...sure, soft: true }), 'a hard day').toBe('idle');
+    expect(tapContext({ ...sure, busy: true }), 'during another moment').toBe('idle');
+    expect(tapContext({ ...sure, napping: true }), 'napping').toBe('return.napping');
+  });
+
+  it("keeps the founder's exact words", () => {
+    expect(render(LIBRARY.founder[0].text, as(HATCHLING))).toMatch(/\* Dad went to work, so I'm helping build myself!$/);
+    expect(render(LIBRARY['founder.caught'][0].text, as(HATCHLING))).toMatch(/\* I WAS JUST LOOKING!!!$/);
   });
 });
 
@@ -235,6 +247,19 @@ describe('moments', () => {
     const done = settle(running, new Date(NOW.getTime() + 11 * 60_000)).state;
     expect(moment(running, done, undefined)).toBe('focus.finished');
     expect(moment(running, done, 'open')).toBe('focus.finishedAway');
+  });
+
+  it('notices a finished focus session even when the completed-session ledger is full', () => {
+    const full = { ...fresh(), completedFocusSessions: Array.from({ length: COMPLETED_FOCUS_SESSIONS_KEPT }, (_, i) => `old-${i}`) };
+    const running = startFocus(full, 'f-new', NOW);
+    const done = settle(running, new Date(NOW.getTime() + 11 * 60_000)).state;
+    expect(done.completedFocusSessions, 'the ledger stays at its limit').toHaveLength(COMPLETED_FOCUS_SESSIONS_KEPT);
+    expect(done.completedFocusSessions).toContain('f-new');
+    expect(moment(running, done, undefined)).toBe('focus.finished');
+    // Rewarded exactly once: settling again changes nothing and says nothing.
+    const again = settle(done, new Date(NOW.getTime() + 12 * 60_000)).state;
+    expect(again.energy).toBe(done.energy);
+    expect(moment(done, again, undefined)).toBeNull();
   });
 
   it('puts evolution and Bond level-ups first', () => {

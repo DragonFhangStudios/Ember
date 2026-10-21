@@ -46,8 +46,10 @@ export function momentFor(before: UserState, after: UserState, intent: Intent | 
   const levelAfter = bondLevel(bondTotal(after.bond)).level;
   if (levelAfter > levelBefore) return { context: 'bond.levelUp', level: levelAfter };
 
-  // A focus session that just completed (rewarded once, in any tab).
-  if (after.completedFocusSessions.length > before.completedFocusSessions.length) {
+  // A focus session that just completed: a new id in the completed ledger. (The
+  // ledger keeps the most recent ids only, so once full its length stays the same.)
+  const done = new Set(before.completedFocusSessions);
+  if (after.completedFocusSessions.some(id => !done.has(id))) {
     const rewarded = after.daily.date !== before.daily.date || after.daily.focusRewards > before.daily.focusRewards;
     if (!rewarded && after.daily.focusRewards >= DAILY_LIMITS.focusRewards) return { context: 'focus.bondComplete' };
     return { context: intent === 'open' ? 'focus.finishedAway' : 'focus.finished' };

@@ -99,29 +99,29 @@ function shuffle<T>(items: T[], random: () => number): T[] {
   return out;
 }
 
-/** How often a tap shows the founder Easter egg in developer builds. */
-export const FOUNDER_CHANCE = 1 / 20;
-/** A second tap within this time after the Easter egg: Ember gets caught. */
+/** How often a tap finds Ember "helping" build himself (the founder Easter egg). */
+export const FOUNDER_CHANCE = 1 / 25;
+/** Tap again within this time after Part A and he gets caught (Part B). */
 export const FOUNDER_CAUGHT_MS = 8000;
 
 /**
- * What a tap on Ember says. In developer builds only, he's occasionally caught
- * "helping" build himself (the founder Easter egg; not a wellness message),
- * but never on a hard day.
+ * What a tap on Ember says. Rarely, he's caught "helping" build himself: the
+ * DFS founder Easter egg (a fun discovery, not a wellness message). It only
+ * happens to a hatched dragon, never on a hard day, and never while something
+ * meaningful is going on (a focus session, or another moment's message still
+ * showing). `chance` is FOUNDER_CHANCE in the app; tests pass 0 or 1.
  */
 export function tapContext(opts: {
   napping: boolean;
   soft: boolean;
-  developerBuild: boolean;
-  random: number;
-  msSinceFounderLine: number | null;
+  busy: boolean;
   stage: DragonStage;
+  random: number;
+  chance: number;
+  msSinceFounderLine: number | null;
 }): DialogueContext {
   if (opts.napping) return 'return.napping';
-  const hatched = opts.stage !== DragonStage.EGG;
-  if (opts.developerBuild && hatched && !opts.soft) {
-    if (opts.msSinceFounderLine !== null && opts.msSinceFounderLine <= FOUNDER_CAUGHT_MS) return 'founder.caught';
-    if (opts.random < FOUNDER_CHANCE) return 'founder';
-  }
-  return 'idle';
+  if (opts.msSinceFounderLine !== null && opts.msSinceFounderLine <= FOUNDER_CAUGHT_MS) return 'founder.caught';
+  const allowed = opts.stage !== DragonStage.EGG && !opts.soft && !opts.busy;
+  return allowed && opts.random < opts.chance ? 'founder' : 'idle';
 }

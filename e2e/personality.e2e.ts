@@ -49,7 +49,7 @@ test('Ember says hello for the time of day when the app opens', async ({ page })
 test('tapping Ember gets a musing and a reaction, never the same line twice in a row, and never changes the save', async ({ page }) => {
   await asHatchling(page);
   const revBefore = (await readSave(page))!.rev;
-  const allowed = [...pool('idle', DragonStage.HATCHLING), ...pool('founder', DragonStage.HATCHLING), ...pool('founder.caught', DragonStage.HATCHLING)];
+  const allowed = pool('idle', DragonStage.HATCHLING);
   await expect(spoken(page), 'the greeting').toBeVisible();
   let last = (await spoken(page).getAttribute('data-line'))!;
   for (let i = 0; i < 8; i++) {
@@ -136,4 +136,102 @@ test('with reduced motion, reactions show a badge but nothing moves', async ({ p
   const first = await transforms();
   await page.waitForTimeout(400);
   expect(await transforms(), 'no element of the dragon moves').toBe(first);
+});
+
+/** Makes the keyboard Easter egg certain (or impossible) from now on. */
+const easterEggChance = (page: Page, chance: number) =>
+  page.evaluate(c => {
+    (window as { __emberEasterEggChance?: number }).__emberEasterEggChance = c;
+  }, chance);
+
+const keyboard = (page: Page) => page.locator('[data-keyboard]');
+
+/** The Easter egg never interrupts another moment, so wait until its message has gone. */
+const messageGone = (page: Page) => expect(page.getByRole('status')).toHaveText('', { timeout: 10_000 });
+
+test.describe('the keyboard Easter egg', () => {
+  test('Ember gets caught "helping" build himself, then hides the keyboard, without touching the save', async ({ page }) => {
+    await asHatchling(page);
+    await messageGone(page); // the greeting
+    await easterEggChance(page, 1);
+    const revBefore = (await readSave(page))!.rev;
+
+    await talk(page).click();
+    await expect(spoken(page)).toHaveAttribute('data-line', 'founder-helping');
+    await expect(spoken(page)).toContainText("Dad went to work, so I'm helping build myself!");
+    await expect(keyboard(page)).toHaveAttribute('data-keyboard', 'typing');
+    await expect(talk(page)).toHaveAttribute('data-antic', 'typing');
+
+    await talk(page).click(); // caught!
+    await expect(spoken(page)).toHaveAttribute('data-line', 'founder-caught');
+    await expect(spoken(page)).toContainText('I WAS JUST LOOKING!!!');
+    await expect(keyboard(page)).toHaveAttribute('data-keyboard', 'busted');
+    await expect(talk(page)).toHaveAttribute('data-reaction', 'surprise');
+
+    await expect(keyboard(page), 'the keyboard goes away after a moment').toHaveCount(0, { timeout: 6000 });
+    expect((await readSave(page))!.rev, 'nothing was saved').toBe(revBefore);
+  });
+
+  test('never for the egg', async ({ page }) => {
+    await messageGone(page);
+    await easterEggChance(page, 1);
+    await talk(page).click();
+    await expectSays(page, pool('idle', DragonStage.EGG), 'egg musing');
+    await expect(keyboard(page)).toHaveCount(0);
+  });
+
+  test('never during a focus session', async ({ page }) => {
+    await asHatchling(page);
+    await easterEggChance(page, 1);
+    await goToTab(page, 'Focus');
+    await page.getByRole('button', { name: 'Start focus' }).click();
+    await messageGone(page);
+    await talk(page).click();
+    await expectSays(page, pool('idle', DragonStage.HATCHLING), 'musing during focus');
+    await expect(keyboard(page)).toHaveCount(0);
+  });
+
+  test("never over another moment's message", async ({ page }) => {
+    await asHatchling(page);
+    await easterEggChance(page, 1);
+    await page.getByText('Morning Routine').click();
+    await expect(page.getByRole('status')).toContainText('Today counts!');
+    await talk(page).click();
+    await expectSays(page, pool('idle', DragonStage.HATCHLING), 'musing over the quest message');
+    await expect(keyboard(page)).toHaveCount(0);
+  });
+
+  test('never after a low-mood check-in', async ({ page }) => {
+    await asHatchling(page);
+    await easterEggChance(page, 1);
+    await goToTab(page, 'Check-in');
+    await page.getByRole('button', { name: '1', exact: true }).nth(1).click();
+    await page.getByRole('button', { name: 'Log Check-in' }).click();
+    await messageGone(page);
+    await talk(page).click();
+    await expectSays(page, pool('idle', DragonStage.HATCHLING, true), 'gentle musing');
+    await expect(keyboard(page)).toHaveCount(0);
+  });
+
+  test('with reduced motion, the keyboard and the guilty pose are still (and the words are there)', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await asHatchling(page);
+    await messageGone(page);
+    await easterEggChance(page, 1);
+    const pose = () => keyboard(page).evaluate(k => [k, ...k.querySelectorAll('*')].map(e => getComputedStyle(e).transform).join('|'));
+
+    await talk(page).click();
+    await expect(keyboard(page)).toHaveAttribute('data-keyboard', 'typing');
+    const typing = await pose();
+    await page.waitForTimeout(400);
+    expect(await pose(), 'typing pose is still').toBe(typing);
+
+    await talk(page).click();
+    await expect(keyboard(page)).toHaveAttribute('data-keyboard', 'busted');
+    await expect(spoken(page)).toContainText('I WAS JUST LOOKING!!!');
+    await expect.poll(pose, { message: 'tucked away, not where it was' }).not.toBe(typing);
+    const busted = await pose();
+    await page.waitForTimeout(400);
+    expect(await pose(), 'guilty pose is still').toBe(busted);
+  });
 });

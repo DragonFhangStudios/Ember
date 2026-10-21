@@ -67,7 +67,7 @@ export type DialogueContext =
   | 'idle'
   /** Soft, supportive lines used on a hard day when a context has no gentle line. */
   | 'support'
-  /** Developer builds only (see select.ts): a founder Easter egg. */
+  /** The DFS founder Easter egg (rare; see tapContext in select.ts). */
   | 'founder'
   | 'founder.caught';
 
@@ -279,11 +279,13 @@ export const LIBRARY: Record<DialogueContext, Line[]> = {
     { id: 'egg-support-glow', text: '*the egg glows softly beside you*', expression: 'reassurance', stages: egg, gentle: true }, // new
   ],
 
-  // Founder Easter egg (developer builds only): Ember "helping" build himself.
+  // The DFS founder Easter egg: Ember "helping" build himself. His words are
+  // exact (approved by Andrew); the narration describes the scene for anyone
+  // who can't see the tiny keyboard.
   founder: [
-    { id: 'founder-helping', text: "*typing on a tiny keyboard* Dad went to work, so I'm helping build myself!", expression: 'mischief' },
+    { id: 'founder-helping', text: "*pulls out a tiny keyboard and taps away* Dad went to work, so I'm helping build myself!", expression: 'mischief' },
   ],
   'founder.caught': [
-    { id: 'founder-caught', text: '*hides the keyboard behind his back* I WAS JUST LOOKING!!!', expression: 'surprise' },
+    { id: 'founder-caught', text: '*startled, hides the keyboard behind his back* I WAS JUST LOOKING!!!', expression: 'surprise' },
   ],
 };

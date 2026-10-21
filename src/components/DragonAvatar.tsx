@@ -19,6 +19,34 @@ const REACTIONS: Record<Expression, { badge: string; motion: TargetAndTransition
   surprise: { badge: '❗', motion: { y: [0, -14, 0] } },
 };
 
+/** The keyboard Easter egg: typing away (Part A), then caught (Part B). */
+export type Antic = 'typing' | 'busted';
+
+/**
+ * A tiny keyboard (temporary art; the final character art and animation come
+ * from #20). Decorative: Ember's words describe the scene.
+ */
+function TinyKeyboard() {
+  const keys = [0, 1, 2].flatMap(row =>
+    Array.from({ length: 9 - row }, (_, i) => ({ x: 9 + row * 5 + i * 12, y: 10 + row * 9 })),
+  );
+  return (
+    <svg viewBox="0 0 120 44" className="w-full h-auto drop-shadow-md" aria-hidden="true">
+      <rect x="2" y="4" width="116" height="38" rx="7" fill="#2A2A2A" stroke="#D4AF37" strokeWidth="2" />
+      {keys.map((k, i) => (
+        <rect key={i} x={k.x} y={k.y} width="9" height="6" rx="1.5" fill="#F5F5F0" />
+      ))}
+      <rect x="30" y="34" width="60" height="5" rx="2" fill="#F5F5F0" />
+    </svg>
+  );
+}
+
+// Where the keyboard is: in front while typing, tucked behind his back (peeking out) when caught.
+const KEYBOARD_POSES = {
+  typing: { x: '-50%', y: 0, rotate: -4, scale: 1 },
+  busted: { x: '10%', y: -36, rotate: 28, scale: 0.8 },
+};
+
 export interface Reaction {
   expression: Expression;
   /** Changes for every new reaction, so the same expression can play again. */
@@ -31,6 +59,8 @@ interface DragonAvatarProps {
   /** Tap (or press) Ember to hear a musing. */
   onTalk?: () => void;
   reaction?: Reaction | null;
+  /** The keyboard Easter egg, if it's happening. */
+  antic?: Antic | null;
   isNapping?: boolean;
   isMeditating?: boolean;
   isPetted?: boolean;
@@ -43,7 +73,7 @@ interface DragonAvatarProps {
   };
 }
 
-export function DragonAvatar({ stage, name, onTalk, reaction = null, isNapping, isMeditating, isPetted, isLevelingUp, className, equipped }: DragonAvatarProps) {
+export function DragonAvatar({ stage, name, onTalk, reaction = null, antic = null, isNapping, isMeditating, isPetted, isLevelingUp, className, equipped }: DragonAvatarProps) {
   const stageData = DRAGON_STAGES_DATA[stage];
   const isEgg = stage === DragonStage.EGG;
   // Idle loops (sparkles, breathing, shimmer) stop when the player prefers reduced motion.
@@ -98,6 +128,7 @@ export function DragonAvatar({ stage, name, onTalk, reaction = null, isNapping, 
         disabled={!onTalk}
         aria-label={`Talk to ${name}`}
         data-reaction={reaction?.expression}
+        data-antic={antic ?? undefined}
         className="relative rounded-full outline-none focus-visible:ring-4 focus-visible:ring-dragon-gold/60 disabled:cursor-default"
       >
         {/* The current reaction's badge (decorative; Ember's words carry the meaning). */}
@@ -115,6 +146,28 @@ export function DragonAvatar({ stage, name, onTalk, reaction = null, isNapping, 
             </motion.span>
           )}
         </AnimatePresence>
+        {/* The keyboard Easter egg (in front while typing, behind him when caught). */}
+        <AnimatePresence>
+          {antic && (
+            <motion.div
+              key="keyboard"
+              data-keyboard={antic}
+              initial={{ opacity: 0, ...KEYBOARD_POSES.typing, y: 12 }}
+              animate={{ opacity: 1, ...KEYBOARD_POSES[antic] }}
+              exit={{ opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+              className={cn('absolute left-1/2 bottom-6 w-28 pointer-events-none', antic === 'typing' ? 'z-20' : 'z-0')}
+            >
+              {/* Tap-tap-tap while typing (a few bounces, then still). */}
+              <motion.div
+                animate={antic === 'typing' ? { y: [0, -2, 0] } : { y: 0 }}
+                transition={antic === 'typing' ? { duration: 0.3, repeat: 6 } : undefined}
+              >
+                <TinyKeyboard />
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <motion.div
           animate={
@@ -129,7 +182,7 @@ export function DragonAvatar({ stage, name, onTalk, reaction = null, isNapping, 
             repeat: isNapping || reduceMotion ? 0 : Infinity,
             ease: "easeInOut"
           }}
-          className={cn("relative transition-all duration-500", isPetted && "animate-heartbeat")}
+          className={cn("relative z-10 transition-all duration-500", isPetted && "animate-heartbeat")}
         >
           {/* Glow effect when petted */}
           {isPetted && (

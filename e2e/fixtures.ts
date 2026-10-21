@@ -21,6 +21,10 @@ export const test = base.extend<{ pageErrors: string[] }>({
   },
   context: async ({ context, pageErrors }, use) => {
     await context.route(/picsum\.photos|fonts\.googleapis\.com|fonts\.gstatic\.com/, route => route.abort());
+    // No random Easter eggs: tests that want Ember's keyboard set this to 1.
+    await context.addInitScript(() => {
+      (window as { __emberEasterEggChance?: number }).__emberEasterEggChance = 0;
+    });
     let tabs = 0;
     const watch = (page: Page) => {
       const tab = ++tabs;
