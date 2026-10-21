@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { Plus, X, Sparkles, Sun, Pill, Timer, Heart, Palette } from 'lucide-react';
 import { Quest, QuestType, CustomQuestType } from '../types';
@@ -44,6 +44,15 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
 
   const allTypes = [...DEFAULT_TYPES, ...customQuestTypes];
 
+  // Switching views removes the button that was pressed, so move focus to the
+  // new view's heading (which also renames the dialog for screen readers).
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const shownViewRef = useRef(isCreatingType);
+  useEffect(() => {
+    if (shownViewRef.current !== isCreatingType) titleRef.current?.focus();
+    shownViewRef.current = isCreatingType;
+  }, [isCreatingType]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -84,7 +93,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
   return (
     <div className="bg-surface rounded-3xl p-6 sm:p-8 shadow-2xl border border-line max-w-md w-full mx-auto max-h-[90vh] overflow-y-auto">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="serif text-2xl font-bold text-fg">
+        <h2 id="custom-quest-title" ref={titleRef} tabIndex={-1} className="serif text-2xl font-bold text-fg outline-none">
           {isCreatingType ? 'New Quest Type' : 'Add Custom Quest'}
         </h2>
         <button onClick={onClose} aria-label="Close" className="w-11 h-11 -mr-2 flex-shrink-0 flex items-center justify-center text-fg-muted hover:text-fg">

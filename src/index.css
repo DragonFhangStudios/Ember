@@ -172,6 +172,11 @@ textarea::placeholder {
   border-radius: 9999px;
 }
 
+/* While a modal dialog is open, the page behind it doesn't scroll either. */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
 /* Reduced motion: no looping or moving animations (the app's Motion
    animations follow the same setting via MotionConfig). */
 @media (prefers-reduced-motion: reduce) {

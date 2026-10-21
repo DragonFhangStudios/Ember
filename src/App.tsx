@@ -36,6 +36,7 @@ import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
 import { SettingsSheet } from './components/SettingsSheet';
 import { FeedbackToast } from './components/FeedbackToast';
+import { Dialog } from './components/Dialog';
 import { cn } from './lib/utils';
 import { THEME_HINT_KEY, ThemePreference, readableBackground, resolveDark } from './lib/theme';
 import { useSystemDark } from './lib/useMediaQuery';
@@ -571,33 +572,19 @@ export default function App() {
         <MedicalDisclaimer />
       </main>
 
-      {/* Custom Quest Modal */}
-      <AnimatePresence>
-        {showCustomQuest && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              onClick={() => setShowCustomQuest(false)}
-              className="absolute inset-0 bg-dragon-ink/40 backdrop-blur-sm" 
-            />
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative z-10 w-full max-w-md"
-            >
-              <CustomQuestForm 
-                onAdd={handleAddCustomQuest} 
-                onClose={() => setShowCustomQuest(false)} 
-                customQuestTypes={state.customQuestTypes}
-                onAddType={handleAddCustomType}
-              />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <Dialog
+        open={showCustomQuest}
+        onClose={() => setShowCustomQuest(false)}
+        labelledBy="custom-quest-title"
+        panelClassName="max-w-md"
+      >
+        <CustomQuestForm
+          onAdd={handleAddCustomQuest}
+          onClose={() => setShowCustomQuest(false)}
+          customQuestTypes={state.customQuestTypes}
+          onAddType={handleAddCustomType}
+        />
+      </Dialog>
 
       <SettingsSheet
         isOpen={showSettings}
