@@ -174,7 +174,7 @@ export function DragonAvatar({ stage, isNapping, isMeditating, isPetted, isLevel
             animate={{ scale: 1 }}
             className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-24 h-8 bg-dragon-ember rounded-full shadow-md border border-white/20 flex items-center justify-center"
           >
-            <span className="text-[8px] font-bold text-white uppercase tracking-widest">Equipped</span>
+            <span className="text-[0.625rem] font-bold text-white uppercase tracking-widest">Equipped</span>
           </motion.div>
         )}
         

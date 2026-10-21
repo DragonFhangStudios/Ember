@@ -46,14 +46,14 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
 
   return (
     <div className="flex flex-col items-center gap-4 mt-8">
-      <div className="flex gap-4 justify-center">
+      <div className="flex flex-wrap gap-3 justify-center">
         <motion.button
           whileHover={canPet ? { scale: 1.05 } : {}}
           whileTap={canPet ? { scale: 0.95 } : {}}
           onClick={onPet}
           disabled={!canPet}
           className={cn(
-            "flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg relative overflow-hidden",
+            "min-h-12 flex items-center gap-2 px-5 py-3 rounded-2xl font-bold transition-all shadow-lg relative overflow-hidden",
             canPet 
               ? "bg-rose-500 text-white hover:bg-rose-600 shadow-rose-500/20" 
               : "bg-dragon-warm text-dragon-muted cursor-not-allowed opacity-80"
@@ -73,7 +73,7 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
           onClick={onFeed}
           disabled={!canFeed}
           className={cn(
-            "flex items-center gap-2 px-6 py-3 rounded-2xl text-white font-bold transition-all shadow-lg",
+            "min-h-12 flex items-center gap-2 px-5 py-3 rounded-2xl text-white font-bold transition-all shadow-lg",
             !canFeed
               ? "bg-dragon-warm text-dragon-muted cursor-not-allowed opacity-80"
               : isEgg
@@ -90,7 +90,7 @@ export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage
         <motion.p 
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-[10px] uppercase tracking-widest font-bold text-dragon-muted"
+          className="text-xs text-center uppercase tracking-widest font-bold text-dragon-muted"
         >
           Daily care complete! Ember is resting
         </motion.p>

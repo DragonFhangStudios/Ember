@@ -29,7 +29,7 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
               key={item.id}
               whileHover={{ scale: 1.02 }}
               className={cn(
-                "bg-white rounded-2xl p-4 border transition-all flex items-center gap-4",
+                "bg-white rounded-2xl p-4 border transition-all flex items-center gap-3 sm:gap-4",
                 isEquipped ? "border-dragon-gold ring-1 ring-dragon-gold" : "border-dragon-gold/10"
               )}
             >
@@ -52,7 +52,7 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
                 <button
                   onClick={() => onEquip(item)}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                    "min-h-11 min-w-11 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center",
                     isEquipped 
                       ? "bg-dragon-gold text-white" 
                       : "bg-dragon-warm text-dragon-ink hover:bg-dragon-gold/10"
@@ -65,7 +65,7 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
                   onClick={() => onBuy(item)}
                   disabled={!canAfford}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1",
+                    "min-h-11 min-w-11 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1",
                     canAfford 
                       ? "bg-dragon-ink text-white hover:bg-black" 
                       : "bg-dragon-warm text-dragon-muted cursor-not-allowed"

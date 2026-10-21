@@ -81,12 +81,12 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
   };
 
   return (
-    <div className="bg-white rounded-3xl p-8 shadow-2xl border border-dragon-gold/10 max-w-md w-full mx-auto max-h-[90vh] overflow-y-auto">
+    <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-dragon-gold/10 max-w-md w-full mx-auto max-h-[90vh] overflow-y-auto">
       <div className="flex justify-between items-center mb-6">
         <h2 className="serif text-2xl font-bold text-dragon-ink">
           {isCreatingType ? 'New Quest Type' : 'Add Custom Quest'}
         </h2>
-        <button onClick={onClose} className="p-2 text-dragon-muted hover:text-dragon-ink">
+        <button onClick={onClose} aria-label="Close" className="w-11 h-11 -mr-2 flex-shrink-0 flex items-center justify-center text-dragon-muted hover:text-dragon-ink">
           <X className="w-6 h-6" />
         </button>
       </div>
@@ -110,7 +110,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
             <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
               Pick an Icon
             </label>
-            <div className="grid grid-cols-6 gap-2">
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
               {AVAILABLE_ICONS.map((iconName) => {
                 const Icon = (LucideIcons[iconName as keyof typeof LucideIcons] as any) || Sparkles;
                 return (
@@ -118,8 +118,10 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                     key={iconName}
                     type="button"
                     onClick={() => setNewTypeIcon(iconName)}
+                    aria-label={iconName}
+                    aria-pressed={newTypeIcon === iconName}
                     className={cn(
-                      "p-2 rounded-lg flex items-center justify-center transition-all",
+                      "min-h-11 rounded-lg flex items-center justify-center transition-all",
                       newTypeIcon === iconName ? "bg-dragon-gold text-white" : "bg-dragon-warm text-dragon-muted hover:bg-dragon-gold/10"
                     )}
                   >
@@ -141,7 +143,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                   type="button"
                   onClick={() => setNewTypeColor(color.value)}
                   className={cn(
-                    "px-3 py-2 rounded-lg text-xs font-bold transition-all border",
+                    "min-h-11 px-3 py-2 rounded-lg text-xs font-bold transition-all border",
                     newTypeColor === color.value ? "border-dragon-gold bg-dragon-gold/5" : "border-transparent bg-dragon-warm"
                   )}
                 >
@@ -186,7 +188,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
             <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
               Category
             </label>
-            <p className="text-[10px] text-dragon-muted -mt-1 mb-2">
+            <p className="text-xs text-dragon-muted -mt-1 mb-2">
               Categories help you organize. All custom quests earn the same rewards.
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -198,7 +200,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                     type="button"
                     onClick={() => setSelectedType(t.id)}
                     className={cn(
-                      "px-3 py-2 rounded-xl text-left transition-all border flex items-center gap-2",
+                      "min-h-11 px-3 py-2 rounded-xl text-left transition-all border flex items-center gap-2 min-w-0",
                       selectedType === t.id ? "border-dragon-gold bg-dragon-gold/5" : "border-transparent bg-dragon-warm"
                     )}
                   >
@@ -212,7 +214,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
               <button
                 type="button"
                 onClick={() => setIsCreatingType(true)}
-                className="px-3 py-2 rounded-xl text-left transition-all border border-dashed border-dragon-gold/30 hover:border-dragon-gold flex items-center gap-2"
+                className="min-h-11 px-3 py-2 rounded-xl text-left transition-all border border-dashed border-dragon-gold/30 hover:border-dragon-gold flex items-center gap-2"
               >
                 <div className="p-1.5 rounded-lg bg-dragon-warm text-dragon-gold">
                   <Plus className="w-3 h-3" />

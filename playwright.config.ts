@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 // End-to-end tests in a real browser (real IndexedDB, real tabs, phone-sized
-// viewport). Unit tests stay in Vitest (`npm test`); these are `*.e2e.ts` so
+// viewports). Unit tests stay in Vitest (`npm test`); these are `*.e2e.ts` so
 // Vitest never picks them up.
 const PORT = 4173;
 
@@ -23,7 +23,16 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium' }],
+  projects: [
+    // Every spec at 390×844 (the default above).
+    { name: 'chromium' },
+    // The phone layout spec on a small phone.
+    { name: 'chromium-360', testMatch: '**/mobile.e2e.ts', use: { viewport: { width: 360, height: 780 } } },
+    // Every app spec on an emulated Android phone: touch, mobile user agent,
+    // 412px wide at a 2.625 pixel ratio. (Chromium only: iPhone profiles
+    // would emulate size and touch, not Safari's engine; see #21.)
+    { name: 'pixel-7', testIgnore: '**/harness.e2e.ts', use: { ...devices['Pixel 7'] } },
+  ],
   webServer: {
     command: `npx vite --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,

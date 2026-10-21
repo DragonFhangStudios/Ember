@@ -11,21 +11,25 @@ export interface SaveRecord {
 export const LEGACY_KEY = 'ember_user_state_v2';
 
 /**
- * Every page blocks third-party images and fonts (speed, determinism) and
- * fails the test on any uncaught page error.
+ * Every page blocks third-party images and fonts (speed, determinism), and
+ * an uncaught error in any tab of the context (the main page, extra tabs,
+ * popups) fails the test.
  */
 export const test = base.extend<{ pageErrors: string[] }>({
   pageErrors: async ({}, use) => {
     await use([]);
   },
-  context: async ({ context }, use) => {
+  context: async ({ context, pageErrors }, use) => {
     await context.route(/picsum\.photos|fonts\.googleapis\.com|fonts\.gstatic\.com/, route => route.abort());
+    let tabs = 0;
+    const watch = (page: Page) => {
+      const tab = ++tabs;
+      page.on('pageerror', error => pageErrors.push(`tab ${tab}: ${error.message}`));
+    };
+    context.pages().forEach(watch);
+    context.on('page', watch);
     await use(context);
-  },
-  page: async ({ page, pageErrors }, use) => {
-    page.on('pageerror', error => pageErrors.push(error.message));
-    await use(page);
-    expect(pageErrors, 'uncaught page errors').toEqual([]);
+    expect(pageErrors, 'uncaught errors in any tab').toEqual([]);
   },
 });
 

@@ -25,7 +25,7 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
   const progress = ((timer.durationMs - timer.remainingMs) / timer.durationMs) * 100;
 
   return (
-    <div className="bg-white rounded-3xl p-8 shadow-xl border border-dragon-gold/10 flex flex-col items-center text-center">
+    <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-dragon-gold/10 flex flex-col items-center text-center">
       <div className="mb-6 flex items-center gap-2 text-dragon-ember">
         <Timer className="w-6 h-6" />
         <h2 className="serif text-2xl font-bold">Focus Quest</h2>
@@ -61,23 +61,25 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
         </div>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex items-center gap-6">
         {!isFinished ? (
           <>
             <button
               onClick={isActive ? onPause : onStart}
+              aria-label={isActive ? 'Pause focus' : timer.status === 'paused' ? 'Resume focus' : 'Start focus'}
               className={cn(
-                "w-12 h-12 rounded-full flex items-center justify-center transition-all",
+                "w-20 h-20 rounded-full flex items-center justify-center transition-all",
                 isActive 
                   ? "bg-dragon-warm text-dragon-ink hover:bg-dragon-gold/10" 
                   : "bg-dragon-ember text-white hover:bg-dragon-ember/90 shadow-lg shadow-dragon-ember/20"
               )}
             >
-              {isActive ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-1" />}
+              {isActive ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8 ml-1" />}
             </button>
             <button
               onClick={onReset}
-              className="w-12 h-12 rounded-full bg-dragon-warm text-dragon-ink flex items-center justify-center hover:bg-dragon-gold/10 transition-all"
+              aria-label="Reset focus"
+              className="w-14 h-14 rounded-full bg-dragon-warm text-dragon-ink flex items-center justify-center hover:bg-dragon-gold/10 transition-all"
             >
               <RotateCcw className="w-6 h-6" />
             </button>
@@ -94,7 +96,7 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
             <p className="font-bold text-dragon-ink">Quest Complete!</p>
             <button
               onClick={onReset}
-              className="px-6 py-2 bg-dragon-gold text-white rounded-full font-bold hover:bg-dragon-gold/90 transition-all"
+              className="min-h-12 px-6 py-3 bg-dragon-gold text-white rounded-full font-bold hover:bg-dragon-gold/90 transition-all"
             >
               Start New Quest
             </button>
