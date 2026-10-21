@@ -46,12 +46,14 @@ function firstDayWith(kind: 'real' | 'lore') {
   throw new Error(`no ${kind} fact in 60 days`);
 }
 
+// One page per theme: a page.clock keeps counting across navigations while
+// the page's animation timeline restarts, which would skew Motion's timing.
 for (const kind of ['real', 'lore'] as const) {
-  test(`a ${kind === 'real' ? 'real-world fact cites its source' : 'lore fact is labeled as fiction'}, readable in both themes`, async ({ page }) => {
-    const date = firstDayWith(kind);
-    const fact = factForDay(date);
-    await page.clock.setFixedTime(date);
-    for (const scheme of ['light', 'dark'] as const) {
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`a ${kind === 'real' ? 'real-world fact cites its source' : 'lore fact is labeled as fiction'}, readable in ${scheme} mode`, async ({ page }) => {
+      const date = firstDayWith(kind);
+      const fact = factForDay(date);
+      await page.clock.setFixedTime(date);
       await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
       await openApp(page);
       await waitForApp(page);
@@ -71,6 +73,6 @@ for (const kind of ['real', 'lore'] as const) {
       await card(page).scrollIntoViewIfNeeded();
       await settle(page);
       expect(await contrastProblems(page), `${scheme} contrast`).toEqual([]);
-    }
-  });
+    });
+  }
 }

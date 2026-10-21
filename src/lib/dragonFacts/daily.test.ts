@@ -92,6 +92,7 @@ describe('fact library', () => {
   it('includes the 16 source-checked real-world facts', () => {
     expect(REAL_FACTS).toHaveLength(16);
     expect(new Set(REAL_FACTS.map(f => f.kind === 'real' && f.source.url)).size, 'six source pages').toBe(6);
+    expect(REAL_FACTS.find(f => f.id === 'griffinfly-wingspan')!.text, 'metric with inches').toContain('71 centimeters (28 inches)');
   });
 
   it('keeps lore and real facts apart', () => {

@@ -55,7 +55,7 @@ export const REAL_FACTS: DragonFact[] = [
   { id: 'dragonfly-nymphs-underwater', kind: 'real', text: 'Young dragonflies spend their nymph stage living underwater.', source: SOURCES.D },
   { id: 'dragonfly-nymph-lip', kind: 'real', text: 'Dragonfly nymphs catch prey using an extendable, hinged lower lip.', source: SOURCES.D },
   { id: 'dragonfly-no-stinger', kind: 'real', text: "Dragonflies can bite when threatened, but they don't have stingers.", source: SOURCES.D },
-  { id: 'griffinfly-wingspan', kind: 'real', text: 'Around 300 million years ago, giant dragonfly-like insects called griffinflies had wingspans reaching about 71 centimeters.', source: SOURCES.E },
+  { id: 'griffinfly-wingspan', kind: 'real', text: 'Around 300 million years ago, giant dragonfly-like insects called griffinflies had wingspans reaching about 71 centimeters (28 inches).', source: SOURCES.E },
   { id: 'dragon-fruit-cactus', kind: 'real', text: 'Dragon fruit grows on cactus plants.', source: SOURCES.F },
   { id: 'dragon-fruit-bats', kind: 'real', text: 'Some dragon fruit cactus flowers attract bats that help pollinate them.', source: SOURCES.F },
 ];
