@@ -20,6 +20,8 @@ import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from '.
 import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
 import { DragonAvatar } from './components/DragonAvatar';
+import { CELEBRATION_MS } from './components/Celebration';
+import { bondLevel, bondTotal } from './lib/evolution';
 import { StatsHeader } from './components/StatsHeader';
 import { QuestItem } from './components/QuestItem';
 import { FocusTimer } from './components/FocusTimer';
@@ -36,6 +38,8 @@ import { SettingsSheet } from './components/SettingsSheet';
 import { FeedbackToast } from './components/FeedbackToast';
 import { Dialog } from './components/Dialog';
 import { cn } from './lib/utils';
+import { THEME_HINT_KEY, ThemePreference, readableBackground, resolveDark } from './lib/theme';
+import { useSystemDark } from './lib/useMediaQuery';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
 const STORAGE_KEY = 'ember_user_state_v2';
@@ -74,6 +78,8 @@ function newFocusSessionId(): string {
 const DAY_CHECK_INTERVAL_MS = 30_000;
 const FOCUS_TICK_MS = 250;
 const FEEDBACK_MS = 4000;
+/** The evolution banner stays a little longer than the glow so it can be read. */
+const EVOLUTION_CELEBRATION_MS = 1500;
 
 /**
  * 'preview' = saving isn't possible right now; nothing can change until it is.
@@ -102,6 +108,8 @@ export default function App() {
   const [petFlavorText, setPetFlavorText] = useState<string | null>(null);
   const flavorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isLevelingUp, setIsLevelingUp] = useState(false);
+  const [celebrateBond, setCelebrateBond] = useState(false);
+  const [celebrateMessage, setCelebrateMessage] = useState(false);
   const prevStageRef = useRef<DragonStage | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const settlingSessionRef = useRef<string | null>(null);
@@ -115,6 +123,11 @@ export default function App() {
   };
 
   const withDevice = (s: UserState): UserState => ({ ...s, deviceId: deviceIdRef.current });
+
+  const celebrate = (set: (on: boolean) => void) => {
+    set(true);
+    setTimeout(() => set(false), CELEBRATION_MS);
+  };
 
   // Shows a committed save from the current store instance, ignoring older
   // revisions and anything from a store that has since been replaced.
@@ -138,9 +151,13 @@ export default function App() {
     const epoch = epochRef.current;
     const now = new Date();
     let messages: string[] = [];
+    let bondLevelUp = false;
+    let milestones = false;
     return store
       .update(saved => {
         messages = [];
+        bondLevelUp = false;
+        milestones = false;
         const current = withDevice(saved);
         const settled = settle(current, now);
         if (settled.message) messages.push(settled.message);
@@ -151,6 +168,13 @@ export default function App() {
           if (result.message) messages.push(result.message);
         }
         next = evaluateBadges(next, now);
+        // Celebrate what this action earned (other tabs' changes just appear).
+        bondLevelUp = bondLevel(bondTotal(next.bond)).level > bondLevel(bondTotal(current.bond)).level;
+        const unlocked = next.badges.filter(b => b.unlockedAt && !current.badges.some(c => c.id === b.id && c.unlockedAt));
+        if (unlocked.length) {
+          milestones = true;
+          messages.push(`🏅 Milestone unlocked: ${unlocked.map(b => b.name).join(', ')}`);
+        }
         return next === current ? saved : next;
       })
       .then(
@@ -158,6 +182,8 @@ export default function App() {
           if (!show(epoch, result)) return null; // a replaced store's late result
           setSaveError(null);
           if (messages.length) showFlavorText(messages.join(' '));
+          if (bondLevelUp) celebrate(setCelebrateBond);
+          if (milestones) celebrate(setCelebrateMessage);
           return result;
         },
         error => {
@@ -255,20 +281,27 @@ export default function App() {
     }
   }, [nowMs, focus, commit]);
 
-  // Apply dark mode class
+  // Apply the theme, and cache the preference for the startup script in
+  // index.html (which applies it before the first paint on the next visit).
+  // Until the save loads, the startup script's choice stays in place.
+  const systemDark = useSystemDark();
+  const theme = state?.theme;
+  const dark = theme ? resolveDark(theme, systemDark) : document.documentElement.classList.contains('dark');
   useEffect(() => {
-    if (state?.isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    if (!theme) return;
+    document.documentElement.classList.toggle('dark', dark);
+    try {
+      localStorage.setItem(THEME_HINT_KEY, theme);
+    } catch {
+      // Only a startup hint; the save is the source of truth.
     }
-  }, [state?.isDarkMode]);
+  }, [theme, dark]);
 
   // Detect stage changes for level up animation
   useEffect(() => {
     if (state && prevStageRef.current && state.stage !== prevStageRef.current) {
       setIsLevelingUp(true);
-      setTimeout(() => setIsLevelingUp(false), 5000);
+      setTimeout(() => setIsLevelingUp(false), EVOLUTION_CELEBRATION_MS);
     }
     if (state) {
       prevStageRef.current = state.stage;
@@ -329,13 +362,13 @@ export default function App() {
     update(current => ({ ...current, themeColor: color }));
   };
 
-  const handleToggleDarkMode = () => {
-    update(current => ({ ...current, isDarkMode: !current.isDarkMode }));
+  const handleThemePreference = (preference: ThemePreference) => {
+    update(current => ({ ...current, theme: preference }));
   };
 
   const handleResetProgress = () => {
     runAction((current, now) => ({
-      state: { ...createInitialState(now), isDarkMode: current.isDarkMode, themeColor: current.themeColor, deviceId: current.deviceId },
+      state: { ...createInitialState(now), theme: current.theme, themeColor: current.themeColor, deviceId: current.deviceId },
     }));
     setActiveTab('dashboard');
     setShowResetConfirm(false);
@@ -393,7 +426,7 @@ export default function App() {
           ) : saveMode === 'preview' ? (
             <SaveStatusBanner preview onRetry={() => setOpenAttempt(n => n + 1)} />
           ) : (
-            <p className="serif text-xl text-dragon-muted text-center">{saveError ?? 'Waking Ember…'}</p>
+            <p className="serif text-xl text-fg-muted text-center">{saveError ?? 'Waking Ember…'}</p>
           )}
         </div>
       </div>
@@ -401,14 +434,14 @@ export default function App() {
   }
 
   return (
-    <div className="pb-nav min-h-screen transition-colors duration-700 bg-app-custom" style={{ backgroundColor: state.themeColor }}>
-      <header className="safe-top bg-[var(--card-bg)]/80 backdrop-blur-md sticky top-0 z-50 border-b border-[var(--border-color)] transition-colors">
+    <div className="pb-nav min-h-screen transition-colors duration-700 bg-app-custom" style={{ backgroundColor: readableBackground(state.themeColor, dark) ?? undefined }}>
+      <header className="safe-top bg-surface/80 backdrop-blur-md sticky top-0 z-50 border-b border-line transition-colors">
         <div className="max-w-2xl mx-auto flex justify-between items-center gap-2 px-page py-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-8 h-8 flex-shrink-0 bg-dragon-ember rounded-lg flex items-center justify-center">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <h1 className="serif text-2xl font-bold text-[var(--text-primary)]">Ember</h1>
+            <h1 className="serif text-2xl font-bold text-fg">Ember</h1>
           </div>
           <div className="flex items-center gap-1">
             <HeaderButton active={activeTab === 'insights'} onClick={() => selectTab('insights')} icon={TrendingUp} label="Insights" />
@@ -420,9 +453,9 @@ export default function App() {
 
       <main className="max-w-2xl mx-auto px-page pt-6 sm:pt-8">
         <SaveStatusBanner preview={isPreview} onRetry={() => setOpenAttempt(n => n + 1)} />
-        <StatsHeader userState={state} />
+        <StatsHeader userState={state} celebrateBond={celebrateBond} />
 
-        <div className="bg-[var(--card-bg)] rounded-3xl p-5 sm:p-8 shadow-xl border border-[var(--border-color)] mb-8 relative overflow-hidden min-h-[75vh] flex flex-col items-center justify-center transition-colors">
+        <div className="bg-surface rounded-3xl p-5 sm:p-8 shadow-xl border border-line mb-8 relative overflow-hidden min-h-[75vh] flex flex-col items-center justify-center transition-colors">
           <div className="absolute top-0 right-0 w-32 h-32 bg-dragon-gold/5 rounded-full -mr-16 -mt-16 blur-3xl" />
           <div className="absolute bottom-0 left-0 w-32 h-32 bg-dragon-ember/5 rounded-full -ml-16 -mb-16 blur-3xl" />
           
@@ -448,16 +481,16 @@ export default function App() {
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-6 p-4 bg-dragon-warm/50 rounded-2xl text-center border border-dragon-gold/10"
+              className="mt-6 p-4 bg-surface-muted rounded-2xl text-center border border-line"
             >
-              <p className="text-sm text-dragon-muted">
+              <p className="text-sm text-fg-muted">
                 {state.dragonName} curled up for a nap while you were away. Welcome back! Say hi or complete a quest to wake them up.
               </p>
             </motion.div>
           )}
 
           {/* Content Peek Gradient */}
-          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[var(--card-bg)] to-transparent pointer-events-none flex items-end justify-center pb-4 transition-colors">
+          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-surface to-transparent pointer-events-none flex items-end justify-center pb-4 transition-colors">
             <motion.div
               animate={{ y: [0, 5, 0] }}
               transition={{ duration: 2, repeat: Infinity }}
@@ -480,10 +513,10 @@ export default function App() {
               className="space-y-4"
             >
               <div className="flex justify-between items-center mb-2">
-                <h2 className="serif text-2xl font-bold text-[var(--text-primary)]">Daily Quests</h2>
+                <h2 className="serif text-2xl font-bold text-fg">Daily Quests</h2>
                 <button 
                   onClick={() => setShowCustomQuest(true)}
-                  className="min-h-11 -mr-3 px-3 flex items-center gap-1 text-xs font-bold text-dragon-gold uppercase tracking-widest hover:text-dragon-ember transition-colors"
+                  className="min-h-11 -mr-3 px-3 flex items-center gap-1 text-xs font-bold text-gold-fg uppercase tracking-widest hover:text-ember-fg transition-colors"
                 >
                   <Plus className="w-3 h-3" /> Add Custom
                 </button>
@@ -525,7 +558,7 @@ export default function App() {
 
           {activeTab === 'insights' && (
             <motion.div key="insights" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-              <Insights logs={state.symptomLogs} />
+              <Insights logs={state.symptomLogs} dark={dark} />
             </motion.div>
           )}
 
@@ -556,10 +589,10 @@ export default function App() {
       <SettingsSheet
         isOpen={showSettings}
         themeColor={state.themeColor}
-        isDarkMode={state.isDarkMode}
+        theme={state.theme}
         onClose={closeSettings}
         onThemeChange={handleUpdateTheme}
-        onToggleDarkMode={handleToggleDarkMode}
+        onThemePreference={handleThemePreference}
         onResetRequest={() => setShowResetConfirm(true)}
       />
 
@@ -569,9 +602,9 @@ export default function App() {
         onConfirm={handleResetProgress} 
       />
 
-      <FeedbackToast message={petFlavorText} error={saveError} onDismissError={() => setSaveError(null)} />
+      <FeedbackToast message={petFlavorText} celebrate={celebrateMessage} error={saveError} onDismissError={() => setSaveError(null)} />
 
-      <nav aria-label="Main" className="nav-safe fixed bottom-0 left-0 right-0 bg-[var(--card-bg)]/80 backdrop-blur-lg border-t border-[var(--border-color)] z-50 transition-colors">
+      <nav aria-label="Main" className="nav-safe fixed bottom-0 left-0 right-0 bg-surface/80 backdrop-blur-lg border-t border-line z-50 transition-colors">
         <div className="max-w-2xl mx-auto h-[var(--nav-height)] flex items-stretch px-2">
           <NavButton active={activeTab === 'dashboard'} onClick={() => selectTab('dashboard')} icon={LayoutDashboard} label="Home" />
           <NavButton active={activeTab === 'focus'} onClick={() => selectTab('focus')} icon={Timer} label="Focus" />
@@ -588,7 +621,7 @@ function NavButton({ active, onClick, icon: Icon, label }: { active: boolean, on
     <button
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={cn("flex-1 min-w-11 flex flex-col items-center justify-center gap-0.5 transition-all", active ? "text-dragon-ember" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]")}
+      className={cn("flex-1 min-w-11 flex flex-col items-center justify-center gap-0.5 transition-all", active ? "text-ember-fg" : "text-fg-muted hover:text-fg")}
     >
       <div className={cn("p-1.5 rounded-xl transition-all", active ? "bg-dragon-ember/10" : "bg-transparent")}>
         <Icon className="w-6 h-6" />
@@ -605,7 +638,7 @@ function HeaderButton({ active = false, onClick, icon: Icon, label }: { active?:
       aria-label={label}
       title={label}
       aria-current={active ? 'page' : undefined}
-      className={cn("w-11 h-11 rounded-xl flex items-center justify-center transition-colors", active ? "bg-dragon-gold/10 text-dragon-gold" : "text-dragon-muted hover:text-dragon-ink")}
+      className={cn("w-11 h-11 rounded-xl flex items-center justify-center transition-colors", active ? "bg-dragon-gold/10 text-dragon-gold" : "text-fg-muted hover:text-fg")}
     >
       <Icon className="w-6 h-6" />
     </button>

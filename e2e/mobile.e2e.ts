@@ -145,7 +145,7 @@ test('reward and streak messages appear near the quest that was tapped', async (
   expect(toast.y + toast.height, 'above the nav').toBeLessThanOrEqual((await box(nav(page))).y);
 });
 
-test('Settings holds background color and dark mode, and saves them', async ({ page }) => {
+test('Settings holds background color and appearance, and saves them', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings' }).click();
   const sheet = page.getByRole('dialog', { name: 'Settings' });
   await expect(sheet.getByRole('button', { name: 'Warm White' })).toHaveAttribute('aria-pressed', 'true');
@@ -154,12 +154,13 @@ test('Settings holds background color and dark mode, and saves them', async ({ p
   await expect(sheet.getByRole('button', { name: 'Lavender' })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await readSave(page))?.state.themeColor).toBe('#F5F3FF');
 
-  const darkMode = sheet.getByRole('switch', { name: 'Dark mode' });
-  await expect(darkMode).toHaveAttribute('aria-checked', 'false');
-  await press(darkMode);
-  await expect(darkMode).toHaveAttribute('aria-checked', 'true');
+  // A new player follows the system until choosing.
+  await expect(sheet.getByRole('radio', { name: 'System' })).toBeChecked();
+  const dark = sheet.getByRole('radio', { name: 'Dark' });
+  await press(dark);
+  await expect(dark).toBeChecked();
   await expect(page.locator('html')).toHaveClass(/dark/);
-  await expect.poll(async () => (await readSave(page))?.state.isDarkMode).toBe(true);
+  await expect.poll(async () => (await readSave(page))?.state.theme).toBe('dark');
 
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);

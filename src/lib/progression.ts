@@ -1,4 +1,5 @@
 import { DragonStage, DailyRewards, Quest, SymptomLog, UserState } from '../types';
+import { themePreferenceOf } from './theme';
 import { INITIAL_QUESTS, BADGES } from '../constants';
 import { sanitizeFocusSession } from './focusTimer';
 import {
@@ -25,7 +26,7 @@ import {
 // A day counts toward the streak with one meaningful activity: completing a
 // quest, finishing a focus session, or logging a check-in (not petting/feeding).
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 /** Completed focus-session ids kept for de-duplication (see focusSession.ts for why pruning is safe). */
 export const COMPLETED_FOCUS_SESSIONS_KEPT = 200;
@@ -220,6 +221,7 @@ export function createInitialState(now: Date): UserState {
     daily: freshDaily(today),
     focus: null,
     completedFocusSessions: [],
+    theme: 'system',
   };
 }
 
@@ -331,7 +333,12 @@ export function migrateState(raw: unknown, now: Date): UserState {
   }
   stage = higherStage(stage, stageForActiveDays(lifetimeActiveDays(activity)));
 
-  const { growthProgress: _legacyGrowth, deviceId: _untrustedDeviceId, ...rest } = saved as Record<string, unknown>;
+  const {
+    growthProgress: _legacyGrowth,
+    deviceId: _untrustedDeviceId,
+    isDarkMode: _replacedByTheme,
+    ...rest
+  } = saved as Record<string, unknown>;
   return {
     ...base,
     ...(rest as Partial<UserState>),
@@ -359,6 +366,8 @@ export function migrateState(raw: unknown, now: Date): UserState {
     completedFocusSessions: Array.isArray(saved.completedFocusSessions)
       ? [...new Set(saved.completedFocusSessions.filter((id): id is string => typeof id === 'string'))].slice(-COMPLETED_FOCUS_SESSIONS_KEPT)
       : [],
+    // v8: light/dark preference (isDarkMode before).
+    theme: themePreferenceOf(saved),
   };
 }
 

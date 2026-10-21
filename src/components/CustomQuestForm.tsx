@@ -3,6 +3,7 @@ import * as LucideIcons from 'lucide-react';
 import { Plus, X, Sparkles, Sun, Pill, Timer, Heart, Palette } from 'lucide-react';
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
+import { chipClasses, labelClasses } from '../lib/questColors';
 
 interface CustomQuestFormProps {
   onAdd: (quest: Quest) => void;
@@ -90,12 +91,12 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
   };
 
   return (
-    <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-dragon-gold/10 max-w-md w-full mx-auto max-h-[90vh] overflow-y-auto">
+    <div className="bg-surface rounded-3xl p-6 sm:p-8 shadow-2xl border border-line max-w-md w-full mx-auto max-h-[90vh] overflow-y-auto">
       <div className="flex justify-between items-center mb-6">
-        <h2 id="custom-quest-title" ref={titleRef} tabIndex={-1} className="serif text-2xl font-bold text-dragon-ink outline-none">
+        <h2 id="custom-quest-title" ref={titleRef} tabIndex={-1} className="serif text-2xl font-bold text-fg outline-none">
           {isCreatingType ? 'New Quest Type' : 'Add Custom Quest'}
         </h2>
-        <button onClick={onClose} aria-label="Close" className="w-11 h-11 -mr-2 flex-shrink-0 flex items-center justify-center text-dragon-muted hover:text-dragon-ink">
+        <button onClick={onClose} aria-label="Close" className="w-11 h-11 -mr-2 flex-shrink-0 flex items-center justify-center text-fg-muted hover:text-fg">
           <X className="w-6 h-6" />
         </button>
       </div>
@@ -103,7 +104,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
       {isCreatingType ? (
         <div className="space-y-6">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Type Label
             </label>
             <input
@@ -111,12 +112,12 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
               value={newTypeLabel}
               onChange={(e) => setNewTypeLabel(e.target.value)}
               placeholder="e.g., Hobbies, Work, Self-care"
-              className="w-full px-4 py-3 rounded-xl bg-dragon-warm border-none focus:ring-2 focus:ring-dragon-gold text-dragon-ink"
+              className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Pick an Icon
             </label>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
@@ -131,7 +132,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                     aria-pressed={newTypeIcon === iconName}
                     className={cn(
                       "min-h-11 rounded-lg flex items-center justify-center transition-all",
-                      newTypeIcon === iconName ? "bg-dragon-gold text-white" : "bg-dragon-warm text-dragon-muted hover:bg-dragon-gold/10"
+                      newTypeIcon === iconName ? "bg-dragon-gold text-dragon-ink" : "bg-surface-muted text-fg-muted hover:bg-dragon-gold/10"
                     )}
                   >
                     <Icon className="w-4 h-4" />
@@ -142,7 +143,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Pick a Color
             </label>
             <div className="grid grid-cols-3 gap-2">
@@ -153,10 +154,10 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                   onClick={() => setNewTypeColor(color.value)}
                   className={cn(
                     "min-h-11 px-3 py-2 rounded-lg text-xs font-bold transition-all border",
-                    newTypeColor === color.value ? "border-dragon-gold bg-dragon-gold/5" : "border-transparent bg-dragon-warm"
+                    newTypeColor === color.value ? "border-dragon-gold bg-dragon-gold/5" : "border-transparent bg-surface-muted"
                   )}
                 >
-                  <span className={cn(color.value.split(' ')[0])}>{color.label}</span>
+                  <span className={labelClasses(color.value)}>{color.label}</span>
                 </button>
               ))}
             </div>
@@ -165,13 +166,13 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
           <div className="flex gap-3 pt-4">
             <button
               onClick={() => setIsCreatingType(false)}
-              className="flex-1 py-3 bg-dragon-warm text-dragon-ink rounded-xl font-bold"
+              className="flex-1 py-3 bg-surface-muted text-fg rounded-xl font-bold"
             >
               Cancel
             </button>
             <button
               onClick={handleCreateType}
-              className="flex-1 py-3 bg-dragon-gold text-white rounded-xl font-bold"
+              className="flex-1 py-3 bg-dragon-gold text-dragon-ink rounded-xl font-bold"
             >
               Create Type
             </button>
@@ -180,7 +181,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Quest Title
             </label>
             <input
@@ -188,16 +189,16 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g., Put one dish away"
-              className="w-full px-4 py-3 rounded-xl bg-dragon-warm border-none focus:ring-2 focus:ring-dragon-gold text-dragon-ink"
+              className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg"
               required
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Category
             </label>
-            <p className="text-xs text-dragon-muted -mt-1 mb-2">
+            <p className="text-xs text-fg-muted -mt-1 mb-2">
               Categories help you organize. All custom quests earn the same rewards.
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -210,13 +211,13 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                     onClick={() => setSelectedType(t.id)}
                     className={cn(
                       "min-h-11 px-3 py-2 rounded-xl text-left transition-all border flex items-center gap-2 min-w-0",
-                      selectedType === t.id ? "border-dragon-gold bg-dragon-gold/5" : "border-transparent bg-dragon-warm"
+                      selectedType === t.id ? "border-dragon-gold bg-dragon-gold/5" : "border-transparent bg-surface-muted"
                     )}
                   >
-                    <div className={cn("p-1.5 rounded-lg", t.color)}>
+                    <div className={cn("p-1.5 rounded-lg", chipClasses(t.color))}>
                       <Icon className="w-3 h-3" />
                     </div>
-                    <span className="text-xs font-bold text-dragon-ink truncate">{t.label}</span>
+                    <span className="text-xs font-bold text-fg truncate">{t.label}</span>
                   </button>
                 );
               })}
@@ -225,16 +226,16 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                 onClick={() => setIsCreatingType(true)}
                 className="min-h-11 px-3 py-2 rounded-xl text-left transition-all border border-dashed border-dragon-gold/30 hover:border-dragon-gold flex items-center gap-2"
               >
-                <div className="p-1.5 rounded-lg bg-dragon-warm text-dragon-gold">
+                <div className="p-1.5 rounded-lg bg-surface-muted text-dragon-gold">
                   <Plus className="w-3 h-3" />
                 </div>
-                <span className="text-xs font-bold text-dragon-gold">New Type</span>
+                <span className="text-xs font-bold text-gold-fg">New Type</span>
               </button>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Target Steps (e.g., 4 glasses of water)
             </label>
             <input
@@ -243,25 +244,25 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
               max="100"
               value={target}
               onChange={(e) => setTarget(parseInt(e.target.value) || 1)}
-              className="w-full px-4 py-3 rounded-xl bg-dragon-warm border-none focus:ring-2 focus:ring-dragon-gold text-dragon-ink"
+              className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-dragon-muted mb-2">
+            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Description (Optional)
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="A small step for you, a big gain for Ember."
-              className="w-full px-4 py-3 rounded-xl bg-dragon-warm border-none focus:ring-2 focus:ring-dragon-gold text-dragon-ink h-24 resize-none"
+              className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg h-24 resize-none"
             />
           </div>
 
           <button
             type="submit"
-            className="w-full py-4 bg-dragon-gold text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-dragon-gold/90 transition-all shadow-xl shadow-dragon-gold/20"
+            className="w-full py-4 bg-dragon-gold text-dragon-ink rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-dragon-gold/90 transition-all shadow-xl shadow-dragon-gold/20"
           >
             <Plus className="w-5 h-5" />
             Add Quest

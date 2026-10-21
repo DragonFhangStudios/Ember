@@ -1,8 +1,15 @@
-import { Moon, Palette, RotateCcw, X } from 'lucide-react';
+import { Monitor, Moon, Palette, RotateCcw, Sun, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { ThemePreference } from '../lib/theme';
 import { Dialog } from './Dialog';
 
 const DEFAULT_BACKGROUND = '#F5F5F0';
+const APPEARANCES = [
+  { value: 'system', label: 'System', icon: Monitor },
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+] as const;
+
 const BACKGROUND_COLORS = [
   { name: 'Warm White', value: DEFAULT_BACKGROUND },
   { name: 'Soft Blue', value: '#EBF5FF' },
@@ -16,16 +23,16 @@ interface SettingsSheetProps {
   isOpen: boolean;
   /** Unset means the default background. */
   themeColor?: string;
-  isDarkMode?: boolean;
+  theme: ThemePreference;
   onClose: () => void;
   onThemeChange: (color: string) => void;
-  onToggleDarkMode: () => void;
+  onThemePreference: (preference: ThemePreference) => void;
   /** Opens the reset confirmation; nothing is reset from here directly. */
   onResetRequest: () => void;
 }
 
 /** A bottom sheet for appearance and data settings, so the header fits a phone. */
-export function SettingsSheet({ isOpen, themeColor, isDarkMode, onClose, onThemeChange, onToggleDarkMode, onResetRequest }: SettingsSheetProps) {
+export function SettingsSheet({ isOpen, themeColor, theme, onClose, onThemeChange, onThemePreference, onResetRequest }: SettingsSheetProps) {
   const background = (themeColor ?? DEFAULT_BACKGROUND).toLowerCase();
 
   return (
@@ -34,21 +41,21 @@ export function SettingsSheet({ isOpen, themeColor, isDarkMode, onClose, onTheme
       onClose={onClose}
       labelledBy="settings-title"
       variant="sheet"
-      panelClassName="sheet-safe max-w-2xl max-h-[85vh] overflow-y-auto bg-[var(--card-bg)] rounded-t-3xl shadow-2xl border-t border-[var(--border-color)] px-6 pt-4"
+      panelClassName="sheet-safe max-w-2xl max-h-[85vh] overflow-y-auto bg-surface rounded-t-3xl shadow-2xl border-t border-line px-6 pt-4"
     >
       <div className="flex justify-between items-center mb-4">
-        <h2 id="settings-title" className="serif text-2xl font-bold text-[var(--text-primary)]">Settings</h2>
+        <h2 id="settings-title" className="serif text-2xl font-bold text-fg">Settings</h2>
         <button
           onClick={onClose}
           aria-label="Close settings"
-          className="w-11 h-11 -mr-2 rounded-xl flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          className="w-11 h-11 -mr-2 rounded-xl flex items-center justify-center text-fg-muted hover:text-fg transition-colors"
         >
           <X className="w-6 h-6" />
         </button>
       </div>
 
       <section className="mb-6">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] mb-3">Background color</h3>
+        <h3 className="text-xs font-bold uppercase tracking-widest text-fg-muted mb-3">Background color</h3>
         <div className="flex flex-wrap gap-3">
           {BACKGROUND_COLORS.map(color => (
             <button
@@ -71,35 +78,38 @@ export function SettingsSheet({ isOpen, themeColor, isDarkMode, onClose, onTheme
               aria-label="Custom background color"
               className="color-swatch-input w-11 h-11 p-0 rounded-full border-none cursor-pointer bg-transparent"
             />
-            <Palette aria-hidden="true" className="absolute inset-0 m-auto w-5 h-5 pointer-events-none text-dragon-muted" />
+            <Palette aria-hidden="true" className="absolute inset-0 m-auto w-5 h-5 pointer-events-none text-fg-muted" />
           </span>
         </div>
       </section>
 
-      <section className="mb-6">
-        <button
-          role="switch"
-          aria-checked={!!isDarkMode}
-          onClick={onToggleDarkMode}
-          className="w-full min-h-12 flex items-center justify-between gap-3 rounded-2xl px-4 py-2 bg-dragon-warm/50 text-[var(--text-primary)]"
-        >
-          <span className="flex items-center gap-3 font-bold">
-            <Moon className="w-5 h-5 text-[var(--text-secondary)]" />
-            Dark mode
-          </span>
-          <span
-            aria-hidden="true"
-            className={cn('w-12 h-7 rounded-full p-1 transition-colors', isDarkMode ? 'bg-dragon-ember' : 'bg-dragon-muted/30')}
-          >
-            <span className={cn('block w-5 h-5 rounded-full bg-white shadow transition-transform', isDarkMode && 'translate-x-5')} />
-          </span>
-        </button>
-      </section>
+      <fieldset className="mb-6">
+        <legend className="text-xs font-bold uppercase tracking-widest text-fg-muted mb-3">Appearance</legend>
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-surface-muted">
+          {APPEARANCES.map(({ value, label, icon: Icon }) => (
+            <label key={value} className="relative">
+              {/* The native radio covers the whole segment, so the tap target is the full size. */}
+              <input
+                type="radio"
+                name="appearance"
+                value={value}
+                checked={theme === value}
+                onChange={() => onThemePreference(value)}
+                className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              />
+              <span className="min-h-11 flex items-center justify-center gap-2 rounded-xl text-sm font-bold text-fg-muted transition-colors peer-checked:bg-surface peer-checked:text-fg peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-dragon-gold">
+                <Icon aria-hidden="true" className="w-4 h-4" />
+                {label}
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
 
-      <section className="pt-4 border-t border-[var(--border-color)]">
+      <section className="pt-4 border-t border-line">
         <button
           onClick={onResetRequest}
-          className="w-full min-h-12 flex items-center justify-center gap-2 rounded-2xl px-4 py-2 border border-red-500/40 text-red-500 font-bold hover:bg-red-500/5 transition-colors"
+          className="w-full min-h-12 flex items-center justify-center gap-2 rounded-2xl px-4 py-2 border border-red-500/40 text-red-700 dark:text-red-400 font-bold hover:bg-red-500/5 transition-colors"
         >
           <RotateCcw className="w-5 h-5" />
           Reset progress…

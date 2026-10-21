@@ -1,3 +1,5 @@
+import type { ThemePreference } from './lib/theme';
+
 export enum DragonStage {
   EGG = 'Egg',
   HATCHLING = 'Hatchling',
@@ -120,7 +122,8 @@ export interface UserState {
   bestStreak: number;
   lastActiveDay?: string; // Date.toDateString() of the last day that counted toward the streak
   themeColor?: string;
-  isDarkMode?: boolean;
+  /** Light/dark preference; 'system' follows the device (see lib/theme.ts). Replaced isDarkMode in v8. */
+  theme: ThemePreference;
   daily: DailyRewards;
   focus: FocusSession | null;
   completedFocusSessions: string[]; // ids already rewarded (bounded; see progression.ts)

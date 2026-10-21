@@ -106,7 +106,7 @@ function OpenDialog({ onClose, labelledBy, describedBy, variant = 'center', pane
         if (!closingRef.current && !ref.current?.open) onCloseRef.current();
       }}
       onKeyDown={keepFocusInside}
-      className="m-0 h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0 text-[var(--text-primary)] backdrop:bg-transparent"
+      className="m-0 h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0 text-fg backdrop:bg-transparent"
     >
       <div className={cn('flex h-full w-full justify-center', sheet ? 'items-end' : 'items-center p-4 sm:p-6')}>
         <motion.div

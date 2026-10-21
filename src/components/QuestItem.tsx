@@ -3,6 +3,7 @@ import * as LucideIcons from 'lucide-react';
 import { CheckCircle2, Circle, Pill, Timer, Sun, Heart, Sparkles } from 'lucide-react';
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
+import { chipClasses } from '../lib/questColors';
 
 interface QuestItemProps {
   quest: Quest;
@@ -57,29 +58,29 @@ export function QuestItem({ quest, onToggle, customQuestTypes = [] }: QuestItemP
       className={cn(
         "group flex items-center gap-3 sm:gap-4 p-4 rounded-2xl border transition-all cursor-pointer",
         quest.completed 
-          ? "bg-[var(--card-bg)]/50 border-transparent opacity-60" 
-          : "bg-[var(--card-bg)] border-[var(--border-color)] shadow-sm hover:shadow-md hover:border-dragon-gold/30"
+          ? "bg-surface/60 border-transparent" 
+          : "bg-surface border-line shadow-sm hover:shadow-md hover:border-dragon-gold/30"
       )}
     >
-      <div className={cn("p-3 rounded-xl flex-shrink-0 transition-colors", colorClass)}>
+      <div className={cn("p-3 rounded-xl flex-shrink-0 transition-colors", chipClasses(colorClass), quest.completed && "opacity-60")}>
         <IconComponent className="w-5 h-5" />
       </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-x-2">
-          <h3 className={cn("font-bold text-[var(--text-primary)] break-words", quest.completed && "line-through")}>
+          <h3 className={cn("font-bold break-words", quest.completed ? "text-fg-muted line-through" : "text-fg")}>
             {quest.title}
           </h3>
           {isMultiStep && !quest.completed && (
-            <span className="text-xs font-bold bg-dragon-warm/20 px-1.5 py-0.5 rounded text-[var(--text-secondary)]">
+            <span className="text-xs font-bold bg-fg/5 px-1.5 py-0.5 rounded text-fg-muted">
               {quest.progress}/{quest.target}
             </span>
           )}
         </div>
-        <p className="text-xs text-[var(--text-secondary)]">{quest.description}</p>
+        <p className="text-xs text-fg-muted">{quest.description}</p>
         
         {isMultiStep && !quest.completed && (
-          <div className="mt-2 w-full bg-dragon-warm/20 h-1 rounded-full overflow-hidden">
+          <div className="mt-2 w-full bg-fg/5 h-1 rounded-full overflow-hidden">
             <motion.div 
               initial={{ width: 0 }}
               animate={{ width: `${progressPercent}%` }}
@@ -90,7 +91,7 @@ export function QuestItem({ quest, onToggle, customQuestTypes = [] }: QuestItemP
       </div>
 
       <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        <div className="flex items-center gap-1 text-dragon-gold font-bold text-sm">
+        <div className="flex items-center gap-1 text-gold-fg font-bold text-sm">
           <span>+{quest.points}</span>
           <div className="w-2 h-2 rounded-full bg-dragon-gold" />
         </div>
