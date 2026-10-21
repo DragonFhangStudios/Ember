@@ -19,7 +19,7 @@ test('a failed save changes nothing, says so, and a retry succeeds', async ({ pa
   const saved = (await readSave(page))!.state;
   expect(saved.energy).toBe(50);
   expect(saved.quests.find((q: any) => q.id === 'q1').completed).toBe(false);
-  await expect(page.locator('h3', { hasText: 'Morning Routine' })).not.toHaveClass(/line-through/);
+  await expect(page.getByRole('button', { name: /^Morning Routine/ }).getByText('Morning Routine')).not.toHaveClass(/line-through/);
 
   await page.getByText('Morning Routine').click();
   await expect.poll(async () => (await readSave(page))?.state.energy).toBe(60);

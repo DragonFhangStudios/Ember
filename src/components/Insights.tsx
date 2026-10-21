@@ -1,5 +1,5 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { TrendingUp, Activity, Heart } from 'lucide-react';
+import { TrendingUp, Activity, Heart, NotebookPen } from 'lucide-react';
 import { SymptomLog } from '../types';
 
 interface InsightsProps {
@@ -26,6 +26,9 @@ export function Insights({ logs, dark }: InsightsProps) {
     energy: log.energy,
     mood: log.mood,
   }));
+
+  // Newest first, with notes shown as plain text (React escapes it).
+  const recent = logs.slice(-7).reverse();
 
   if (logs.length === 0) {
     return (
@@ -96,10 +99,30 @@ export function Insights({ logs, dark }: InsightsProps) {
             </ResponsiveContainer>
           </div>
         </div>
+        <section aria-labelledby="recent-checkins-title" className="bg-surface rounded-3xl p-6 shadow-xl border border-line">
+          <div className="flex items-center gap-2 mb-4 text-fg-muted">
+            <NotebookPen className="w-5 h-5" />
+            <h3 id="recent-checkins-title" className="font-bold text-fg">Recent Check-ins</h3>
+          </div>
+          <ul className="divide-y divide-line">
+            {recent.map(log => (
+              <li key={log.date} data-checkin={log.date} className="py-3 first:pt-0 last:pb-0">
+                <p className="text-sm font-bold text-fg">
+                  {new Date(log.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </p>
+                <p className="text-xs text-fg-muted">
+                  Energy {log.energy}/5 · Mood {log.mood}/5
+                </p>
+                {log.notes && <p className="mt-1 text-sm text-fg whitespace-pre-wrap break-words">{log.notes}</p>}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-fg-muted mt-4">Your notes are private and stay on this device.</p>
+        </section>
       </div>
       
       <p className="text-xs text-fg-muted text-center italic">
-        Showing trends for the last 7 check-ins.
+        Showing the last 7 check-ins.
       </p>
     </div>
   );

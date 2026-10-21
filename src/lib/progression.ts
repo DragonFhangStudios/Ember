@@ -1,4 +1,4 @@
-import { DragonStage, DailyRewards, Quest, SymptomLog, UserState } from '../types';
+import { DragonStage, DailyRewards, Quest, QuestReward, QuestType, SymptomLog, UserState } from '../types';
 import { themePreferenceOf } from './theme';
 import { INITIAL_QUESTS, BADGES } from '../constants';
 import { sanitizeFocusSession } from './focusTimer';
@@ -26,7 +26,7 @@ import {
 // A day counts toward the streak with one meaningful activity: completing a
 // quest, finishing a focus session, or logging a check-in (not petting/feeding).
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 /** Completed focus-session ids kept for de-duplication (see focusSession.ts for why pruning is safe). */
 export const COMPLETED_FOCUS_SESSIONS_KEPT = 200;
@@ -45,9 +45,20 @@ const LEGACY_GROWTH_THRESHOLDS: ReadonlyArray<readonly [DragonStage, number]> = 
 export const DAILY_LIMITS = {
   feeds: 3,
   focusRewards: 3,
-  /** Max growth per calendar day from custom quests. Energy and streak credit are unaffected. */
+  /** Max growth per calendar day from custom quests. Streak credit is unaffected. */
   customQuestGrowth: 4,
+  /** Max energy per calendar day from all custom quests combined. Streak credit is unaffected. */
+  customQuestEnergy: 40,
 };
+
+/** Lifetime completed focus sessions for the Zen Master badge. */
+export const ZEN_MASTER_SESSIONS = 5;
+
+/** Custom quests earn this much energy per step (so a quest's points are this times its target). */
+export const CUSTOM_QUEST_ENERGY_PER_STEP = 10;
+export const CUSTOM_QUEST_TARGET_MAX = 100;
+/** Longest check-in note kept, in characters. */
+export const CHECK_IN_NOTE_MAX = 280;
 
 export const REWARDS = {
   pet: { energy: 5, growth: 2 },
@@ -108,13 +119,57 @@ export function activeDaysOf(state: UserState): number {
 }
 
 export function freshDaily(date: string): DailyRewards {
-  return { date, feeds: 0, focusRewards: 0, checkInRewarded: false, meaningfulActivity: false, customQuestGrowth: 0 };
+  return {
+    date,
+    feeds: 0,
+    focusRewards: 0,
+    checkInRewarded: false,
+    meaningfulActivity: false,
+    customQuestGrowth: 0,
+    customQuestEnergy: 0,
+    questRewards: {},
+    autoCompletedQuests: [],
+  };
 }
 
 /** Today's reward counters, treating counters from another day as empty. */
 export function dailyFor(state: UserState, now: Date): DailyRewards {
   const today = dayKey(now);
   return state.daily?.date === today ? state.daily : freshDaily(today);
+}
+
+const NO_REWARD: QuestReward = { energy: 0, growth: 0, scales: 0 };
+
+const maxReward = (...rewards: QuestReward[]): QuestReward => ({
+  energy: Math.max(...rewards.map(r => r.energy)),
+  growth: Math.max(...rewards.map(r => r.growth)),
+  scales: Math.max(...rewards.map(r => r.scales)),
+});
+
+/**
+ * What reaching `progress` steps of `quest` is worth in total, before any
+ * daily cap. Only the built-in Vitality quest pays the medication bonus (its
+ * final step's growth becomes the bonus). A custom quest's category is
+ * cosmetic, so custom quests always earn standard rewards.
+ */
+export function questRewardAt(quest: Quest, progress: number): QuestReward {
+  const steps = Math.max(0, Math.min(progress, quest.target));
+  const perStep = REWARDS.questGrowth / quest.target;
+  const energy = (quest.points / quest.target) * steps;
+  if (quest.type === 'medication' && !quest.isCustom && steps === quest.target) {
+    return { energy, growth: roundGrowth(perStep * (quest.target - 1) + REWARDS.medication.growth), scales: REWARDS.medication.scales };
+  }
+  return { energy, growth: roundGrowth(perStep * steps), scales: 0 };
+}
+
+/**
+ * What a quest has already paid today: its ledger entry, and never less than
+ * the progress it shows (so progress that arrived some other way, such as a
+ * focus session, an edit, or a save from before the ledger, is never paid
+ * again).
+ */
+function questPaid(daily: DailyRewards, quest: Quest): QuestReward {
+  return maxReward(daily.questRewards[quest.id] ?? NO_REWARD, questRewardAt(quest, quest.progress));
 }
 
 /** Adds rewards. `growth` goes to this device's Bond entry; it never changes the stage. */
@@ -221,12 +276,44 @@ export function createInitialState(now: Date): UserState {
     daily: freshDaily(today),
     focus: null,
     completedFocusSessions: [],
+    focusSessionsCompleted: 0,
     theme: 'system',
   };
 }
 
 const num = (value: unknown, fallback: number) =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+function sanitizeQuestRewards(value: unknown): Record<string, QuestReward> {
+  const out: Record<string, QuestReward> = {};
+  if (!value || typeof value !== 'object') return out;
+  for (const [id, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    out[id] = { energy: Math.max(0, num(e.energy, 0)), growth: Math.max(0, num(e.growth, 0)), scales: Math.max(0, num(e.scales, 0)) };
+  }
+  return out;
+}
+
+/** A check-in note as stored: plain text, trimmed, bounded; empty means none. */
+export function normalizeNote(note: unknown): string | undefined {
+  if (typeof note !== 'string') return undefined;
+  const text = note
+    .replace(/\r\n?/g, '\n')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .trim()
+    .slice(0, CHECK_IN_NOTE_MAX)
+    .trim();
+  return text || undefined;
+}
+
+/** Keeps a saved log as it is, except a note that isn't text. */
+function sanitizeLogNote(log: SymptomLog): SymptomLog {
+  if (!log || typeof log !== 'object' || log.notes === undefined || typeof log.notes === 'string') return log;
+  const { notes: _notText, ...rest } = log;
+  return rest;
+}
 
 /**
  * Upgrades any previously saved state to the current shape without losing
@@ -276,6 +363,29 @@ export function migrateState(raw: unknown, now: Date): UserState {
     daily.customQuestGrowth = roundGrowth(Math.min(DAILY_LIMITS.customQuestGrowth, earned));
   }
   daily.customQuestGrowth = num(daily.customQuestGrowth, 0);
+
+  // v9: per-quest reward ledger, custom-quest energy cap, auto-completed quests.
+  daily.questRewards = sanitizeQuestRewards(daily.questRewards);
+  daily.autoCompletedQuests = Array.isArray(daily.autoCompletedQuests)
+    ? daily.autoCompletedQuests.filter((id): id is string => typeof id === 'string')
+    : [];
+  daily.customQuestEnergy = num(daily.customQuestEnergy, 0);
+  if (num(saved.version, 0) < 9 && daily.date === lastLogin) {
+    // Everything today's quests already show was rewarded before the upgrade,
+    // so none of it can pay again, and custom-quest energy already earned
+    // today counts toward the new cap (it's kept even if it's over).
+    for (const quest of quests) {
+      if (quest.progress > 0) {
+        daily.questRewards[quest.id] = maxReward(daily.questRewards[quest.id] ?? NO_REWARD, questRewardAt(quest, quest.progress));
+      }
+    }
+    daily.customQuestEnergy = roundGrowth(
+      quests.filter(q => q.isCustom && q.isDaily).reduce((sum, q) => sum + questRewardAt(q, q.progress).energy, 0),
+    );
+    // How a focus or check-in quest was completed wasn't recorded: treat it as
+    // completed by the focus session or check-in, so it can't be "corrected".
+    daily.autoCompletedQuests = quests.filter(q => q.completed && (q.type === 'focus' || q.type === 'symptom')).map(q => q.id);
+  }
 
   // Pre-v4 saves counted a streak day only at the next rollover, so a live
   // streak covered days up to the day before lastLogin. Carry it over, then
@@ -333,6 +443,10 @@ export function migrateState(raw: unknown, now: Date): UserState {
   }
   stage = higherStage(stage, stageForActiveDays(lifetimeActiveDays(activity)));
 
+  const completedFocusSessions = Array.isArray(saved.completedFocusSessions)
+    ? [...new Set(saved.completedFocusSessions.filter((id): id is string => typeof id === 'string'))].slice(-COMPLETED_FOCUS_SESSIONS_KEPT)
+    : [];
+
   const {
     growthProgress: _legacyGrowth,
     deviceId: _untrustedDeviceId,
@@ -354,7 +468,7 @@ export function migrateState(raw: unknown, now: Date): UserState {
     currentStreak,
     bestStreak: Math.max(num(saved.bestStreak, 0), currentStreak),
     lastActiveDay,
-    symptomLogs: Array.isArray(saved.symptomLogs) ? saved.symptomLogs : [],
+    symptomLogs: Array.isArray(saved.symptomLogs) ? saved.symptomLogs.map(sanitizeLogNote) : [],
     inventory: Array.isArray(saved.inventory) ? saved.inventory : [],
     equipped: saved.equipped && typeof saved.equipped === 'object' ? saved.equipped : {},
     customQuestTypes: Array.isArray(saved.customQuestTypes) ? saved.customQuestTypes : [],
@@ -363,9 +477,11 @@ export function migrateState(raw: unknown, now: Date): UserState {
     daily,
     // v7: the shared focus session and its de-duplication ledger.
     focus: sanitizeFocusSession(saved.focus, now.getTime()),
-    completedFocusSessions: Array.isArray(saved.completedFocusSessions)
-      ? [...new Set(saved.completedFocusSessions.filter((id): id is string => typeof id === 'string'))].slice(-COMPLETED_FOCUS_SESSIONS_KEPT)
-      : [],
+    completedFocusSessions,
+    // v9: lifetime completed focus sessions (Zen Master). Every id in the
+    // ledger is a completed session, so it's at least that many; earlier
+    // sessions weren't recorded and aren't guessed. Never lowered.
+    focusSessionsCompleted: Math.max(Math.floor(num(saved.focusSessionsCompleted, 0)), completedFocusSessions.length),
     // v8: light/dark preference (isDarkMode before).
     theme: themePreferenceOf(saved),
   };
@@ -400,6 +516,13 @@ export function rollOverDay(state: UserState, now: Date): UserState {
   };
 }
 
+/**
+ * One step (or more) on a quest. Each step pays only what goes beyond what the
+ * quest has already been worth today (the daily ledger), so redoing a
+ * corrected step, or changing a quest's target, never pays twice. Custom
+ * quests share daily energy and growth allowances: a step that would exceed
+ * one gets only what's left, and still counts for the streak.
+ */
 export function advanceQuest(state: UserState, id: string, now: Date, increment = 1): ActionResult {
   const current = rollOverDay(state, now);
   const quest = current.quests.find(q => q.id === id);
@@ -407,41 +530,150 @@ export function advanceQuest(state: UserState, id: string, now: Date, increment 
 
   const progress = Math.min(quest.target, quest.progress + increment);
   const completed = progress === quest.target;
-  const steps = progress - quest.progress;
+  const daily = dailyFor(current, now);
+  const paid = questPaid(daily, quest);
+  const worth = questRewardAt(quest, progress);
+  let energy = Math.max(0, worth.energy - paid.energy);
+  let growth = roundGrowth(Math.max(0, worth.growth - paid.growth));
+  const scales = Math.max(0, worth.scales - paid.scales);
+  const alreadyEarned = progress > quest.progress && energy === 0 && growth === 0 && scales === 0;
 
-  let growth = (REWARDS.questGrowth / quest.target) * steps;
-  let scales = 0;
-  // Only the built-in Vitality quest pays the medication bonus. A custom
-  // quest's category is cosmetic, so custom quests always earn standard rewards.
-  if (quest.type === 'medication' && !quest.isCustom && completed) {
-    growth = REWARDS.medication.growth;
-    scales = REWARDS.medication.scales;
-  }
-
-  let withQuest: UserState = {
-    ...current,
-    quests: current.quests.map(q => (q.id === id ? { ...q, progress, completed } : q)),
-  };
-
-  // Custom quests share a daily growth allowance. A step that would exceed it
-  // gets only what's left; energy and streak credit are never reduced.
+  let nextDaily: DailyRewards = { ...daily, questRewards: { ...daily.questRewards, [id]: maxReward(paid, worth) } };
   let message: string | undefined;
   if (quest.isCustom) {
-    const daily = dailyFor(current, now);
-    const remaining = Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth);
-    const granted = Math.min(growth, remaining);
-    if (granted < growth) {
-      message = "You've earned today's Bond from custom quests. They still count for energy and your streak!";
+    const energyLeft = Math.max(0, DAILY_LIMITS.customQuestEnergy - daily.customQuestEnergy);
+    const growthLeft = Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth);
+    const capped = energy > energyLeft || growth > growthLeft;
+    energy = Math.min(energy, energyLeft);
+    growth = Math.min(growth, growthLeft);
+    nextDaily = {
+      ...nextDaily,
+      customQuestEnergy: roundGrowth(daily.customQuestEnergy + energy),
+      customQuestGrowth: roundGrowth(daily.customQuestGrowth + growth),
+    };
+    if (capped) {
+      const energyDone = nextDaily.customQuestEnergy >= DAILY_LIMITS.customQuestEnergy;
+      const bondDone = nextDaily.customQuestGrowth >= DAILY_LIMITS.customQuestGrowth;
+      message =
+        energyDone && bondDone
+          ? "You've earned today's energy and Bond from custom quests. They still count toward your streak!"
+          : energyDone
+            ? "You've earned today's energy from custom quests. They still count for Bond and your streak!"
+            : "You've earned today's Bond from custom quests. They still count for energy and your streak!";
     }
-    growth = granted;
-    withQuest = { ...withQuest, daily: { ...daily, customQuestGrowth: roundGrowth(daily.customQuestGrowth + granted) } };
   }
+  if (alreadyEarned) message = "Done again! You'd already earned this step today.";
 
-  const result: ActionResult = {
-    state: grantRewards(withQuest, { energy: (quest.points / quest.target) * steps, growth, scales }),
-    message,
+  const withQuest: UserState = {
+    ...current,
+    quests: current.quests.map(q => (q.id === id ? { ...q, progress, completed } : q)),
+    daily: nextDaily,
   };
+  const result: ActionResult = { state: grantRewards(withQuest, { energy, growth, scales }), message };
   return completed ? withStreakCredit(result, now) : result;
+}
+
+/**
+ * Whether a quest's last step can be corrected: a daily quest with progress
+ * made today by tapping (not completed by a focus session or check-in).
+ */
+export function canCorrectQuest(state: UserState, quest: Quest, now: Date): boolean {
+  return (
+    quest.isDaily &&
+    quest.progress > 0 &&
+    state.lastLogin === dayKey(now) &&
+    !dailyFor(state, now).autoCompletedQuests.includes(quest.id)
+  );
+}
+
+/**
+ * Corrects a mistaken tap: takes one step off the quest (so a one-step quest
+ * is "not done" again). Only the displayed progress changes. Nothing earned is
+ * taken back, and the ledger keeps what the step was worth, so redoing it pays
+ * nothing. `seenProgress` is the progress the player was correcting: if the
+ * quest changed since (another tab, or a new day), nothing happens.
+ */
+export function correctQuest(state: UserState, id: string, seenProgress: number, now: Date): ActionResult {
+  const current = rollOverDay(state, now);
+  const quest = current.quests.find(q => q.id === id);
+  if (!quest || quest.progress !== seenProgress || !canCorrectQuest(current, quest, now)) {
+    return { state: current, message: 'That quest has already changed, so there was nothing to correct.' };
+  }
+  const daily = dailyFor(current, now);
+  const progress = quest.progress - 1;
+  return {
+    state: {
+      ...current,
+      quests: current.quests.map(q => (q.id === id ? { ...q, progress, completed: false } : q)),
+      daily: { ...daily, questRewards: { ...daily.questRewards, [id]: questPaid(daily, quest) } },
+    },
+    message:
+      quest.target === 1
+        ? `Marked "${quest.title}" as not done. Everything you earned stays yours.`
+        : `Took one step off "${quest.title}". Everything you earned stays yours.`,
+  };
+}
+
+export interface CustomQuestDetails {
+  title: string;
+  description: string;
+  type: QuestType;
+  target: number;
+}
+
+/** A custom quest's target: a whole number from 1 to CUSTOM_QUEST_TARGET_MAX. */
+export const customQuestTarget = (target: number) =>
+  Number.isFinite(target) ? Math.min(CUSTOM_QUEST_TARGET_MAX, Math.max(1, Math.round(target))) : 1;
+
+/**
+ * Edits a custom quest, keeping its id (so today's ledger still applies). If
+ * the new target is below its progress, the progress is shown as complete,
+ * and that progress counts as already rewarded: an edit never pays anything,
+ * now or after a correction.
+ */
+export function editCustomQuest(state: UserState, id: string, details: CustomQuestDetails, now: Date): ActionResult {
+  const current = rollOverDay(state, now);
+  const quest = current.quests.find(q => q.id === id);
+  const title = details.title.trim();
+  if (!quest?.isCustom) return { state: current, message: "That quest isn't here anymore, so nothing was changed." };
+  if (!title) return { state: current };
+
+  const target = customQuestTarget(details.target);
+  const progress = Math.min(quest.progress, target);
+  const edited: Quest = {
+    ...quest,
+    title,
+    description: details.description.trim(),
+    type: details.type,
+    target,
+    points: CUSTOM_QUEST_ENERGY_PER_STEP * target,
+    progress,
+    completed: progress >= target,
+  };
+  const daily = dailyFor(current, now);
+  const questRewards =
+    quest.progress > 0
+      ? { ...daily.questRewards, [id]: maxReward(questPaid(daily, quest), questRewardAt(edited, progress)) }
+      : daily.questRewards;
+  return {
+    state: { ...current, quests: current.quests.map(q => (q.id === id ? edited : q)), daily: { ...daily, questRewards } },
+    message: `Saved your changes to "${title}".`,
+  };
+}
+
+/**
+ * Deletes a custom quest. Everything it earned stays: energy, Bond, scales,
+ * streak and active-day credit, badges. Today's ledger and daily allowances
+ * keep counting it, so deleting and re-adding can't earn more today.
+ */
+export function deleteCustomQuest(state: UserState, id: string, now: Date): ActionResult {
+  const current = rollOverDay(state, now);
+  const quest = current.quests.find(q => q.id === id);
+  if (!quest?.isCustom) return { state: current };
+  return {
+    state: { ...current, quests: current.quests.filter(q => q.id !== id) },
+    message: `Deleted "${quest.title}". Everything you earned from it stays yours.`,
+  };
 }
 
 export function petDragon(state: UserState, now: Date): ActionResult {
@@ -494,15 +726,16 @@ export function feedDragon(state: UserState, now: Date): ActionResult {
 /** A completed focus session. Always counts the quest; rewards are capped per day. */
 export function completeFocusSession(state: UserState, now: Date): ActionResult {
   const current = rollOverDay(state, now);
-  const daily = dailyFor(current, now);
+  const daily = autoComplete(dailyFor(current, now), current, 'focus');
   const withQuest = {
     ...current,
     quests: current.quests.map(q => (q.type === 'focus' ? { ...q, progress: q.target, completed: true } : q)),
+    daily,
   };
 
   if (daily.focusRewards >= DAILY_LIMITS.focusRewards) {
     return withStreakCredit({
-      state: { ...withQuest, daily, isNapping: false },
+      state: { ...withQuest, isNapping: false },
       message: "Great focus! You've earned all of today's focus Bond. Ember is proud of you.",
     }, now);
   }
@@ -536,15 +769,25 @@ export function completeFocusSessionLate(state: UserState, completedAt: Date, no
   };
 }
 
-/** Logs today's check-in. A second check-in on the same day updates the log without extra rewards. */
-export function logCheckIn(state: UserState, energy: number, mood: number, now: Date): ActionResult {
+/** The quests a focus session or check-in completes are recorded as such (they can't be "corrected"). */
+function autoComplete(daily: DailyRewards, state: UserState, type: 'focus' | 'symptom'): DailyRewards {
+  const ids = state.quests.filter(q => q.type === type && !daily.autoCompletedQuests.includes(q.id)).map(q => q.id);
+  return ids.length ? { ...daily, autoCompletedQuests: [...daily.autoCompletedQuests, ...ids] } : daily;
+}
+
+/**
+ * Logs today's check-in, with an optional private note. A second check-in on
+ * the same day updates the log (including its note) without extra rewards.
+ */
+export function logCheckIn(state: UserState, energy: number, mood: number, now: Date, note?: string): ActionResult {
   const current = rollOverDay(state, now);
   const daily = dailyFor(current, now);
-  const log: SymptomLog = { date: now.toISOString(), energy, mood };
+  const notes = normalizeNote(note);
+  const log: SymptomLog = { date: now.toISOString(), energy, mood, ...(notes ? { notes } : {}) };
 
   const todayIndex = current.symptomLogs.map(l => dayKey(new Date(l.date))).lastIndexOf(dayKey(now));
   if (daily.checkInRewarded && todayIndex !== -1) {
-    const symptomLogs = current.symptomLogs.map((l, i) => (i === todayIndex ? { ...l, ...log } : l));
+    const symptomLogs = current.symptomLogs.map((l, i) => (i === todayIndex ? log : l));
     return { state: { ...current, symptomLogs, daily }, message: "Updated today's check-in." };
   }
 
@@ -552,7 +795,7 @@ export function logCheckIn(state: UserState, energy: number, mood: number, now: 
     ...current,
     symptomLogs: [...current.symptomLogs, log],
     quests: current.quests.map(q => (q.type === 'symptom' ? { ...q, progress: q.target, completed: true } : q)),
-    daily: { ...daily, checkInRewarded: true },
+    daily: { ...autoComplete(daily, current, 'symptom'), checkInRewarded: true },
   };
   return withStreakCredit(
     { state: daily.checkInRewarded ? { ...withLog, isNapping: false } : grantRewards(withLog, REWARDS.checkIn) },
@@ -572,12 +815,12 @@ export function evaluateBadges(state: UserState, now: Date): UserState {
     const unlocked =
       (badge.id === 'badge_hatch' && state.stage !== DragonStage.EGG) ||
       (badge.id === 'badge_pet_10' && state.petCount >= 10) ||
+      (badge.id === 'badge_focus_5' && state.focusSessionsCompleted >= ZEN_MASTER_SESSIONS) ||
       (badge.id === 'badge_streak_3' && state.bestStreak >= 3) ||
       (badge.id === 'badge_streak_7' && state.bestStreak >= 7) ||
       (badge.id === 'badge_days_100' && activeDaysOf(state) >= 100) ||
       (badge.id === 'badge_days_200' && activeDaysOf(state) >= 200) ||
       (badge.id === 'badge_days_365' && activeDaysOf(state) >= 365);
-    // TODO: badge_focus_5 needs a lifetime focus counter (Phase 2).
     if (!unlocked) return badge;
     changed = true;
     return { ...badge, unlockedAt: now.toISOString() };

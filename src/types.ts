@@ -27,6 +27,7 @@ export interface SymptomLog {
   date: string;
   energy: number; // 1-5
   mood: number; // 1-5
+  /** Optional private note (plain text, bounded; see CHECK_IN_NOTE_MAX). Stays in the local save. */
   notes?: string;
 }
 
@@ -53,6 +54,13 @@ export interface CustomQuestType {
   color: string;
 }
 
+/** What a quest's steps have already been worth today (before any daily cap). */
+export interface QuestReward {
+  energy: number;
+  growth: number;
+  scales: number;
+}
+
 /** Per-calendar-day reward bookkeeping. Resets when the day rolls over. */
 export interface DailyRewards {
   date: string; // Date.toDateString() of the day these counters belong to
@@ -61,6 +69,15 @@ export interface DailyRewards {
   checkInRewarded: boolean;
   meaningfulActivity: boolean; // today already counted toward the streak
   customQuestGrowth: number; // growth earned today from custom quests (capped)
+  customQuestEnergy: number; // energy earned today from custom quests (capped)
+  /**
+   * Per quest id: the most its progress has been worth today. A step pays only
+   * what goes beyond this, so undoing and redoing (or editing) never pays twice.
+   * Entries outlive a deleted quest until the day rolls over.
+   */
+  questRewards: Record<string, QuestReward>;
+  /** Quests completed today by a focus session or check-in (not correctable). */
+  autoCompletedQuests: string[];
 }
 
 /**
@@ -127,4 +144,5 @@ export interface UserState {
   daily: DailyRewards;
   focus: FocusSession | null;
   completedFocusSessions: string[]; // ids already rewarded (bounded; see progression.ts)
+  focusSessionsCompleted: number; // lifetime count, never lowered (Zen Master); not bounded like the ids
 }

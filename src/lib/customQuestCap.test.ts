@@ -54,10 +54,10 @@ describe('custom quest growth cap', () => {
     expect(state.quests.filter(q => q.isCustom).every(q => q.completed)).toBe(true);
   });
 
-  it('never reduces energy', () => {
+  it('never reduces energy (energy has its own cap, #19)', () => {
     let state = withCustomQuests(many(10));
     for (let i = 0; i < 10; i++) state = complete(state, `c${i}`).state;
-    expect(state.energy).toBe(50 + 10 * 10);
+    expect(state.energy).toBe(50 + DAILY_LIMITS.customQuestEnergy);
   });
 
   it('grants a partial reward when a quest would exceed the remaining allowance', () => {
