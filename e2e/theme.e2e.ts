@@ -108,6 +108,8 @@ test.describe('with a fresh save', () => {
   }
 
   test('text stays readable on any custom background color, in both themes', async ({ page }) => {
+    // 6 colors × 2 themes × top and bottom of the page: about 16s alone, more under parallel load.
+    test.slow();
     await auditMode(page);
     // Some of these are deliberately bad picks: black, white, saturated, and mid gray.
     for (const color of ['#000000', '#ffffff', '#ff0000', '#777777', '#1e3a8a', '#fef08a']) {
@@ -233,7 +235,8 @@ test.describe('celebrations', () => {
       new MutationObserver(() => {
         const showing = document.querySelector('[data-celebration]') || document.body.textContent?.includes('Evolution Milestone!');
         if (showing) w.celebrationTimes.first ??= performance.now();
-        else if (w.celebrationTimes.first !== undefined) w.celebrationTimes.last = performance.now();
+        // The moment they're all gone (later page changes don't move it).
+        else if (w.celebrationTimes.first !== undefined) w.celebrationTimes.last ??= performance.now();
       }).observe(document.body, { childList: true, subtree: true, characterData: true });
     });
     await page.getByText('Morning Routine').click();

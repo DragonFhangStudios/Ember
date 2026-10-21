@@ -19,7 +19,7 @@ import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/foc
 import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from './lib/store';
 import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
-import { DragonAvatar } from './components/DragonAvatar';
+import { Antic, DragonAvatar, Reaction } from './components/DragonAvatar';
 import { CELEBRATION_MS } from './components/Celebration';
 import { bondLevel, bondTotal } from './lib/evolution';
 import { StatsHeader } from './components/StatsHeader';
@@ -40,6 +40,8 @@ import { Dialog } from './components/Dialog';
 import { cn } from './lib/utils';
 import { THEME_HINT_KEY, ThemePreference, readableBackground, resolveDark } from './lib/theme';
 import { useSystemDark } from './lib/useMediaQuery';
+import { FOUNDER_CAUGHT_MS, Spoken, createSpeaker, founderChance, tapContext } from './lib/dialogue/select';
+import { Intent, Moment, daysAway, isSoftDay, momentFor, openingMoment } from './lib/dialogue/events';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
 const STORAGE_KEY = 'ember_user_state_v2';
@@ -78,6 +80,11 @@ function newFocusSessionId(): string {
 const DAY_CHECK_INTERVAL_MS = 30_000;
 const FOCUS_TICK_MS = 250;
 const FEEDBACK_MS = 4000;
+/** A little longer when Ember says something, so there's time to read it. */
+const SPEECH_MS = 5500;
+const REACTION_MS = 2400;
+/** How long Ember stays startled after being caught at the keyboard. */
+const BUSTED_MS = 3000;
 /** The evolution banner stays a little longer than the glow so it can be read. */
 const EVOLUTION_CELEBRATION_MS = 1500;
 
@@ -105,22 +112,66 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isPetted, setIsPetted] = useState(false);
-  const [petFlavorText, setPetFlavorText] = useState<string | null>(null);
-  const flavorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
+  const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ember's personality (#18): what he says, how he reacts, and context for both.
+  const speakerRef = useRef(createSpeaker());
+  const [reaction, setReaction] = useState<Reaction | null>(null);
+  const reactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const awayDaysRef = useRef(0);
+  const founderLineAtRef = useRef<number | null>(null);
+  // The keyboard Easter egg's visual state (never saved).
+  const [antic, setAntic] = useState<Antic | null>(null);
+  const anticTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Until when another moment's message (a quest, check-in, …) is showing.
+  const momentShowingUntilRef = useRef(0);
   const [isLevelingUp, setIsLevelingUp] = useState(false);
   const [celebrateBond, setCelebrateBond] = useState(false);
-  const [celebrateMessage, setCelebrateMessage] = useState(false);
   const prevStageRef = useRef<DragonStage | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const settlingSessionRef = useRef<string | null>(null);
   const saveModeRef = useRef<SaveMode>('loading');
   saveModeRef.current = saveMode;
 
-  const showFlavorText = (text: string, durationMs = FEEDBACK_MS) => {
-    setPetFlavorText(text);
-    if (flavorTimeoutRef.current) clearTimeout(flavorTimeoutRef.current);
-    flavorTimeoutRef.current = setTimeout(() => setPetFlavorText(null), durationMs);
+  const showAntic = (next: Antic, durationMs: number) => {
+    setAntic(next);
+    if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
+    anticTimeoutRef.current = setTimeout(() => setAntic(null), durationMs);
   };
+
+  /** Ends the keyboard Easter egg, if it's going: no Part B after this. */
+  const cancelEasterEgg = () => {
+    founderLineAtRef.current = null;
+    if (anticTimeoutRef.current) clearTimeout(anticTimeoutRef.current);
+    setAntic(null);
+  };
+
+  /**
+   * Shows a message and/or Ember's line. A wellness message (`holds`: anything
+   * from the player's actions) stays for its full time: taps on Ember wait
+   * until it's gone, and it ends the keyboard Easter egg.
+   */
+  const showFeedback = (message: string | null, speech: Spoken | null = null, celebrate = false, holds = true) => {
+    const duration = speech ? SPEECH_MS : FEEDBACK_MS;
+    setFeedback({ message, speech, celebrate });
+    if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
+    feedbackTimeoutRef.current = setTimeout(() => setFeedback({ message: null, speech: null }), duration);
+    if (holds) {
+      momentShowingUntilRef.current = Date.now() + duration;
+      cancelEasterEgg();
+    }
+    if (speech) {
+      setReaction({ expression: speech.expression, key: Date.now() });
+      if (reactionTimeoutRef.current) clearTimeout(reactionTimeoutRef.current);
+      reactionTimeoutRef.current = setTimeout(() => setReaction(null), REACTION_MS);
+    }
+  };
+
+  /** Ember's line for a moment, softer on a hard day (a low-mood check-in today). */
+  const speak = (moment: Moment | null, s: UserState, now: Date): Spoken | null =>
+    moment
+      ? speakerRef.current.say(moment.context, { stage: s.stage, dragonName: s.dragonName, soft: isSoftDay(s, now), level: moment.level })
+      : null;
 
   const withDevice = (s: UserState): UserState => ({ ...s, deviceId: deviceIdRef.current });
 
@@ -142,23 +193,28 @@ export default function App() {
    * the latest saved state (a focus session that ended, a new day), applies
    * the action, and unlocks badges. The UI changes only after the commit.
    */
-  const commit = useCallback((action?: (current: UserState, now: Date) => ActionResult) => {
+  const commit = useCallback((action?: (current: UserState, now: Date) => ActionResult, intent?: Intent) => {
     const store = storeRef.current;
     if (!store) {
-      if (action && saveModeRef.current === 'preview') showFlavorText("Preview mode: that wasn't saved.");
+      if (action && saveModeRef.current === 'preview') showFeedback("Preview mode: that wasn't saved.");
       return Promise.resolve(null);
     }
+    // Any care, quest, check-in, or focus action ends the keyboard Easter egg.
+    if (action) cancelEasterEgg();
     const epoch = epochRef.current;
     const now = new Date();
     let messages: string[] = [];
     let bondLevelUp = false;
     let milestones = false;
+    let before: UserState | null = null;
+    let after: UserState | null = null;
     return store
       .update(saved => {
         messages = [];
         bondLevelUp = false;
         milestones = false;
         const current = withDevice(saved);
+        before = current;
         const settled = settle(current, now);
         if (settled.message) messages.push(settled.message);
         let next = settled.state;
@@ -175,15 +231,21 @@ export default function App() {
           milestones = true;
           messages.push(`🏅 Milestone unlocked: ${unlocked.map(b => b.name).join(', ')}`);
         }
+        after = next;
         return next === current ? saved : next;
       })
       .then(
         result => {
           if (!show(epoch, result)) return null; // a replaced store's late result
           setSaveError(null);
-          if (messages.length) showFlavorText(messages.join(' '));
+          // What Ember says about it (dialogue never changes the save).
+          let moment = before && after ? momentFor(before, after, intent, now, awayDaysRef.current) : null;
+          if (!moment && intent === 'open') moment = openingMoment(result.state, awayDaysRef.current, now);
+          const speech = speak(moment, result.state, now);
+          // Just saying hello when the app opens doesn't hold: a tap can answer it.
+          const greetingOnly = intent === 'open' && !messages.length;
+          if (messages.length || speech) showFeedback(messages.length ? messages.join(' ') : null, speech, milestones, !greetingOnly);
           if (bondLevelUp) celebrate(setCelebrateBond);
-          if (milestones) celebrate(setCelebrateMessage);
           return result;
         },
         error => {
@@ -194,7 +256,7 @@ export default function App() {
       );
   }, [show]);
 
-  const runAction = (action: (current: UserState, now: Date) => ActionResult) => commit(action);
+  const runAction = (action: (current: UserState, now: Date) => ActionResult, intent?: Intent) => commit(action, intent);
   const update = (fn: (current: UserState) => UserState) => commit(current => ({ state: fn(current) }));
 
   // Open the save store (migrating the old localStorage save on first run).
@@ -229,7 +291,9 @@ export default function App() {
         show(epoch, initial);
         setSaveMode('ready');
         unsubscribe = store.subscribe(result => show(epoch, result));
-        commit();
+        // How long the player was away (before today's rollover), so Ember can say hello.
+        awayDaysRef.current = daysAway(initial.state, new Date());
+        commit(undefined, 'open');
       },
       error => {
         if (cancelled) return;
@@ -271,6 +335,16 @@ export default function App() {
   }, [focusRunning]);
   const focusTimer = focusView(focus, nowMs);
   const isFocusActive = focusTimer.status === 'running';
+  const focusOngoing = focusTimer.status === 'running' || focusTimer.status === 'paused';
+
+  // The keyboard Easter egg gives way to anything meaningful: a low-mood
+  // check-in (from any tab), a nap, a focus session starting or pausing,
+  // another tab, or a dialog. Ember just puts the keyboard away.
+  const softDay = state ? isSoftDay(state, new Date()) : false;
+  const napping = state?.isNapping ?? false;
+  useEffect(() => {
+    cancelEasterEgg();
+  }, [softDay, napping, focusOngoing, activeTab, showCustomQuest, showSettings, showResetConfirm]);
 
   // When the session's end time passes, settle it. Any tab may do this; the
   // store transaction makes sure it's rewarded once.
@@ -326,7 +400,7 @@ export default function App() {
   }, [commit]);
 
   const handleUpdateQuestProgress = (id: string, increment: number = 1) => {
-    runAction((current, now) => advanceQuest(current, id, now, increment));
+    runAction((current, now) => advanceQuest(current, id, now, increment), 'quest');
   };
 
   const handleAddCustomQuest = (quest: Quest) => {
@@ -388,7 +462,7 @@ export default function App() {
 
   const handlePet = () => {
     const petCountBefore = state?.petCount;
-    runAction(petDragon).then(result => {
+    runAction(petDragon, 'pet').then(result => {
       if (result && result.state.petCount !== petCountBefore) {
         setIsPetted(true);
         setTimeout(() => setIsPetted(false), 1000);
@@ -396,20 +470,43 @@ export default function App() {
     });
   };
 
-  const handleFeed = () => runAction(feedDragon);
+  const handleFeed = () => runAction(feedDragon, 'feed');
+
+  // Tap Ember to hear a musing. Talking never changes the save.
+  const handleTalk = () => {
+    if (!state) return;
+    const now = Date.now();
+    // A quest, check-in, or other wellness message stays until it finishes.
+    if (now < momentShowingUntilRef.current) return;
+    const context = tapContext({
+      napping: state.isNapping,
+      soft: isSoftDay(state, new Date(now)),
+      busy: focusOngoing,
+      stage: state.stage,
+      random: Math.random(),
+      chance: founderChance(),
+      msSinceFounderLine: founderLineAtRef.current === null ? null : now - founderLineAtRef.current,
+    });
+    // The keyboard Easter egg: Part A, typing away; Part B, caught.
+    if (context === 'founder') showAntic('typing', FOUNDER_CAUGHT_MS);
+    else if (context === 'founder.caught') showAntic('busted', BUSTED_MS);
+    else cancelEasterEgg();
+    founderLineAtRef.current = context === 'founder' ? now : null;
+    showFeedback(null, speak({ context }, state, new Date(now)), false, false);
+  };
 
   const handleCheckInComplete = (energy: number, mood: number) => {
-    runAction((current, now) => logCheckIn(current, energy, mood, now));
+    runAction((current, now) => logCheckIn(current, energy, mood, now), 'checkIn');
   };
 
   const handleFocusStart = () => {
     const id = newFocusSessionId();
-    runAction((current, now) => ({ state: startFocus(current, id, now) })).then(() => setNowMs(Date.now()));
+    runAction((current, now) => ({ state: startFocus(current, id, now) }), 'focusStart').then(() => setNowMs(Date.now()));
   };
 
   const handleFocusPause = () => {
     const id = focusTimer.id;
-    if (id) runAction((current, now) => ({ state: pauseFocus(current, id, now) }));
+    if (id) runAction((current, now) => ({ state: pauseFocus(current, id, now) }), 'focusPause');
   };
 
   const handleFocusReset = () => {
@@ -461,6 +558,10 @@ export default function App() {
           
           <DragonAvatar 
             stage={state.stage} 
+            name={state.dragonName}
+            onTalk={handleTalk}
+            reaction={reaction}
+            antic={antic}
             isNapping={state.isNapping} 
             isMeditating={isFocusActive}
             isPetted={isPetted}
@@ -484,7 +585,7 @@ export default function App() {
               className="mt-6 p-4 bg-surface-muted rounded-2xl text-center border border-line"
             >
               <p className="text-sm text-fg-muted">
-                {state.dragonName} curled up for a nap while you were away. Welcome back! Say hi or complete a quest to wake them up.
+                {state.dragonName} curled up for a nap while you were away. Welcome back! Pet him or complete a quest to wake him up.
               </p>
             </motion.div>
           )}
@@ -602,7 +703,7 @@ export default function App() {
         onConfirm={handleResetProgress} 
       />
 
-      <FeedbackToast message={petFlavorText} celebrate={celebrateMessage} error={saveError} onDismissError={() => setSaveError(null)} />
+      <FeedbackToast speech={feedback.speech} message={feedback.message} celebrate={feedback.celebrate} error={saveError} onDismissError={() => setSaveError(null)} />
 
       <nav aria-label="Main" className="nav-safe fixed bottom-0 left-0 right-0 bg-surface/80 backdrop-blur-lg border-t border-line z-50 transition-colors">
         <div className="max-w-2xl mx-auto h-[var(--nav-height)] flex items-stretch px-2">

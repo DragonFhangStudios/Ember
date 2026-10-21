@@ -1,11 +1,15 @@
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, X } from 'lucide-react';
-import { Celebration } from './Celebration';
+import { CELEBRATION_MS, Celebration } from './Celebration';
+import { Spoken } from '../lib/dialogue/select';
 
 interface FeedbackToastProps {
+  /** What Ember says (#18). */
+  speech?: Spoken | null;
   /** Rewards, streaks, evolution, and other action results. */
   message: string | null;
-  /** A gentle glow around the message (e.g. a milestone was unlocked). */
+  /** Celebrate this message with a gentle glow (e.g. a milestone was unlocked). */
   celebrate?: boolean;
   /** A save that failed. Stays until dismissed or the next save succeeds. */
   error: string | null;
@@ -17,7 +21,29 @@ interface FeedbackToastProps {
  * the player tapped (a quest at the bottom of the list, the focus timer, …)
  * instead of only under the dragon, which is often scrolled away.
  */
-export function FeedbackToast({ message, celebrate = false, error, onDismissError }: FeedbackToastProps) {
+/** The glow starts when its message appears (not when it was saved), so it's never missed. */
+function MessageCelebration() {
+  const [active, setActive] = useState(true);
+  useEffect(() => {
+    const timer = setTimeout(() => setActive(false), CELEBRATION_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return <Celebration active={active} rounded="rounded-2xl" />;
+}
+
+/** Ember's words, with *narrated actions* in italics. */
+function SpeechText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(\*[^*]+\*)/).filter(Boolean).map((part, i) =>
+        part.startsWith('*') && part.endsWith('*') ? <em key={i}>{part.slice(1, -1)}</em> : <span key={i}>{part}</span>,
+      )}
+    </>
+  );
+}
+
+export function FeedbackToast({ speech = null, message, celebrate = false, error, onDismissError }: FeedbackToastProps) {
+  const shown = speech || message;
   return (
     <div className="feedback-above-nav fixed inset-x-0 z-[60] px-4 pointer-events-none">
       <div className="max-w-md mx-auto flex flex-col gap-2">
@@ -36,16 +62,23 @@ export function FeedbackToast({ message, celebrate = false, error, onDismissErro
         {/* Always rendered, so screen readers announce each new message. */}
         <div role="status" aria-live="polite">
           <AnimatePresence mode="wait">
-            {message && (
+            {shown && (
               <motion.div
-                key={message}
+                key={`${speech?.id ?? ''}|${message ?? ''}`}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
+                exit={{ opacity: 0, transition: { duration: 0.15 } }}
                 className="relative px-4 py-3 rounded-2xl bg-fg text-surface dark:bg-surface-muted dark:text-fg dark:ring-1 dark:ring-dragon-gold/30 text-sm font-medium text-center shadow-lg"
               >
-                {message}
-                <Celebration active={celebrate} rounded="rounded-2xl" />
+                {speech && (
+                  <p data-line={speech.id} data-expression={speech.expression} className="text-base leading-snug">
+                    <span className="sr-only">Ember says: </span>
+                    <span aria-hidden="true" className="mr-1">🐉</span>
+                    <SpeechText text={speech.text} />
+                  </p>
+                )}
+                {message && <p className={speech ? 'mt-1 text-xs' : undefined}>{message}</p>}
+                {celebrate && <MessageCelebration />}
               </motion.div>
             )}
           </AnimatePresence>
