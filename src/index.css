@@ -134,3 +134,8 @@ body {
   border: 2px solid rgba(142, 146, 153, 0.2);
   border-radius: 9999px;
 }
+
+/* While a modal dialog is open, the page behind it doesn't scroll either. */
+html:has(dialog[open]) {
+  overflow: hidden;
+}
