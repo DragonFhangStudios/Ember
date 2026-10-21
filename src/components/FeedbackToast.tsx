@@ -42,7 +42,7 @@ export function FeedbackToast({ message, celebrate = false, error, onDismissErro
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="relative px-4 py-3 rounded-2xl bg-fg text-surface text-sm font-medium text-center shadow-lg"
+                className="relative px-4 py-3 rounded-2xl bg-fg text-surface dark:bg-surface-muted dark:text-fg dark:ring-1 dark:ring-dragon-gold/30 text-sm font-medium text-center shadow-lg"
               >
                 {message}
                 <Celebration active={celebrate} rounded="rounded-2xl" />

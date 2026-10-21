@@ -21,10 +21,34 @@ async function chooseTheme(page: Page, theme: Theme) {
   await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 
-/** Polls, so theme transitions and enter animations can finish. */
+/**
+ * Waits until animations have finished. Audits run with reduced motion on
+ * (see auditMode): colors are the same, and the dragon's idle loops, which
+ * Motion restarts as chains of short animations, are off.
+ */
+async function settle(page: Page) {
+  await page.waitForFunction(
+    () => document.getAnimations().every(a => a.effect?.getTiming().iterations === Infinity || a.playState !== 'running'),
+    undefined,
+    { timeout: 5000 },
+  );
+}
+
+/**
+ * Checks once the screen has settled. Deliberately not a retrying check: that
+ * would wait out short-lived problems, like a toast that shows for a few seconds.
+ */
 async function expectReadable(page: Page, screen: string) {
-  await expect.poll(() => contrastProblems(page), { message: `contrast on ${screen}`, timeout: 8000 }).toEqual([]);
-  await expect.poll(() => lightPanelsInDarkMode(page), { message: `light panels on ${screen}` }).toEqual([]);
+  await settle(page);
+  expect(await contrastProblems(page), `contrast on ${screen}`).toEqual([]);
+  expect(await lightPanelsInDarkMode(page), `light panels on ${screen}`).toEqual([]);
+}
+
+/** Reduced motion for color audits, so the page can settle (see settle). */
+async function auditMode(page: Page) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await waitForApp(page);
 }
 
 /** Visits every screen and dialog, checking each. */
@@ -38,6 +62,8 @@ async function expectAllScreensReadable(page: Page, theme: string) {
   await goToTab(page, 'Check-in');
   await page.getByRole('button', { name: 'Log Check-in' }).click();
   await expect(page.getByRole('heading', { name: 'Check-in Logged' })).toBeVisible();
+  // Audit with the message toast showing too (it shows only for a few seconds).
+  await expect(page.getByRole('status')).toContainText('Today counts');
   await expectReadable(page, `${theme} Check-in Logged`);
   await page.getByRole('button', { name: 'Insights' }).click();
   await expect(page.getByRole('heading', { name: 'Health Insights' })).toBeVisible();
@@ -73,6 +99,7 @@ test.describe('with a fresh save', () => {
 
   for (const theme of ['Light', 'Dark'] as const) {
     test(`every screen and dialog meets WCAG AA contrast in ${theme.toLowerCase()} mode`, async ({ page }) => {
+      await auditMode(page);
       await chooseTheme(page, theme);
       if (theme === 'Dark') await expect(page.locator('html')).toHaveClass(/dark/);
       else await expect(page.locator('html')).not.toHaveClass(/dark/);
@@ -81,6 +108,7 @@ test.describe('with a fresh save', () => {
   }
 
   test('text stays readable on any custom background color, in both themes', async ({ page }) => {
+    await auditMode(page);
     // Some of these are deliberately bad picks: black, white, saturated, and mid gray.
     for (const color of ['#000000', '#ffffff', '#ff0000', '#777777', '#1e3a8a', '#fef08a']) {
       await settingsButton(page).click();
@@ -198,6 +226,16 @@ test.describe('celebrations', () => {
   });
 
   test('hatching, a Bond level-up, and a milestone each get a short, gentle celebration', async ({ page }) => {
+    // Times the celebrations in the page itself (the test runner's clock adds its own delays).
+    await page.evaluate(() => {
+      const w = window as unknown as { celebrationTimes: { first?: number; last?: number } };
+      w.celebrationTimes = {};
+      new MutationObserver(() => {
+        const showing = document.querySelector('[data-celebration]') || document.body.textContent?.includes('Evolution Milestone!');
+        if (showing) w.celebrationTimes.first ??= performance.now();
+        else if (w.celebrationTimes.first !== undefined) w.celebrationTimes.last = performance.now();
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
     await page.getByText('Morning Routine').click();
     await expect(page.getByRole('status')).toContainText('Milestone unlocked: First Hatch');
     await expect(page.getByText('Evolution Milestone!')).toBeVisible();
@@ -205,10 +243,13 @@ test.describe('celebrations', () => {
     await expect(page.getByRole('status').locator('[data-celebration]')).toHaveCount(1);
     await expect(page.locator('main [data-celebration] span').first(), 'sparkles').toBeAttached();
 
-    const shownAt = Date.now();
     await expect(page.locator('[data-celebration]')).toHaveCount(0, { timeout: 3000 });
     await expect(page.getByText('Evolution Milestone!')).toHaveCount(0);
-    expect(Date.now() - shownAt, 'about 1–1.5s').toBeLessThan(2000);
+    // Designed: glows 1.2s, the evolution banner 1.5s, plus a 0.3s fade-out
+    // (1.8s at most), with some slack for slow machines.
+    const { first, last } = await page.evaluate(() => (window as unknown as { celebrationTimes: { first: number; last: number } }).celebrationTimes);
+    expect(last - first, 'celebrations last about 1–1.5s').toBeGreaterThan(1000);
+    expect(last - first, 'celebrations last about 1–1.5s').toBeLessThan(2300);
 
     const saved = (await readSave(page))!.state;
     expect(saved.stage).toBe('Hatchling');
