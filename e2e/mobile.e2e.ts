@@ -108,6 +108,7 @@ test('every screen and dialog fits the phone, with tap targets of at least 44×4
   await page.getByRole('button', { name: 'Add Custom' }).click();
   await page.getByLabel('Quest Title').fill('Stretch for five minutes, slowly and gently');
   await page.getByRole('button', { name: 'Add Quest' }).click();
+  await expectGoodLayout(page, 'Daily Quests'); // with a custom quest and its energy note
   await page.getByText('Morning Routine').click();
   await page.getByText('Morning Routine').click();
   await expectGoodLayout(page, 'Mark as not done?');

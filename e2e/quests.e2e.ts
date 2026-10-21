@@ -133,6 +133,44 @@ test.describe('correcting a mistaken tap', () => {
   });
 });
 
+test.describe('custom quest rewards on screen', () => {
+  const note = (page: Page) => page.locator('#custom-quest-energy');
+
+  test('show energy per step and the shared daily limit, never a total above it', async ({ page }) => {
+    await expect(note(page), 'no note without custom quests').toHaveCount(0);
+    await addCustomQuest(page, 'Big one', 6);
+    await addCustomQuest(page, 'Small one');
+    await expect(quest(page, 'Big one').locator('[data-reward]')).toHaveText('+10/step');
+    await expect(quest(page, 'Small one').locator('[data-reward]')).toHaveText('+10');
+    await expect(quest(page, 'Big one')).not.toContainText('+60');
+    await expect(quest(page, 'Hydration Goal').locator('[data-reward]'), 'built-in quests unchanged').toHaveText('+20');
+    await expect(note(page)).toHaveText('Custom quests: +10 energy per step, up to 40 a day together. 40 left today.');
+    await expect(quest(page, 'Big one')).toHaveAccessibleDescription(/up to 40 a day together/);
+    await expect(quest(page, 'Morning Routine')).not.toHaveAccessibleDescription(/40 a day/);
+
+    await tapTimes(page, 'Big one', 3);
+    await expect(note(page)).toContainText('10 left today.');
+    await tapTimes(page, 'Big one', 1);
+    await expect(note(page)).toContainText("Today's is all earned, and they still count for your streak.");
+    expect((await saved(page)).energy, 'what was shown is what was paid').toBe(90);
+  });
+
+  test('are readable in light and dark mode', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload();
+    await waitForApp(page);
+    await addCustomQuest(page, 'Big one', 6);
+    await tapTimes(page, 'Big one', 1);
+    await expect(page.getByRole('status')).toHaveText('', { timeout: 10_000 }); // the message has gone
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      await note(page).scrollIntoViewIfNeeded();
+      await settle(page);
+      expect(await contrastProblems(page), `${scheme} contrast`).toEqual([]);
+    }
+  });
+});
+
 test.describe('custom quests', () => {
   test('can be edited (title, description, category, target), keeping their identity and progress', async ({ page }) => {
     await addCustomQuest(page, 'Stretch', 2);
@@ -348,6 +386,55 @@ test.describe('check-in notes', () => {
     await page.getByRole('button', { name: 'Log Check-in' }).click();
     await expect.poll(async () => 'notes' in (await saved(page)).symptomLogs[0]).toBe(false);
     expect((await saved(page)).symptomLogs).toHaveLength(1);
+  });
+
+  test('after reopening the app, editing only the note keeps the saved energy and mood', async ({ page }) => {
+    await goToTab(page, 'Check-in');
+    const rating = (n: number, group: 'energy' | 'mood') =>
+      page.getByRole('button', { name: String(n), exact: true }).nth(group === 'energy' ? 0 : 1);
+    await rating(1, 'energy').click();
+    await rating(2, 'mood').click();
+    await page.getByLabel('Note (optional)').fill('first');
+    await page.getByRole('button', { name: 'Log Check-in' }).click();
+    await expect.poll(async () => (await saved(page)).symptomLogs[0]).toMatchObject({ energy: 1, mood: 2, notes: 'first' });
+
+    await page.reload();
+    await waitForApp(page);
+    await goToTab(page, 'Check-in');
+    await page.getByRole('button', { name: "Update today's check-in" }).click();
+    await expect(rating(1, 'energy')).toHaveAttribute('aria-pressed', 'true');
+    await expect(rating(2, 'mood')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByLabel('Note (optional)')).toHaveValue('first');
+    await page.getByLabel('Note (optional)').fill('first, and a nap');
+    await page.getByRole('button', { name: 'Log Check-in' }).click();
+    await expect.poll(async () => (await saved(page)).symptomLogs[0]?.notes).toBe('first, and a nap');
+    const s = await saved(page);
+    expect(s.symptomLogs).toHaveLength(1);
+    expect(s.symptomLogs[0]).toMatchObject({ energy: 1, mood: 2 });
+  });
+
+  test("yesterday's check-in form doesn't carry into a new day", async ({ page }) => {
+    await page.clock.setFixedTime(new Date(2026, 9, 21, 23, 59, 30));
+    await openApp(page);
+    await waitForApp(page);
+    await goToTab(page, 'Check-in');
+    await page.getByRole('button', { name: '1', exact: true }).nth(0).click();
+    await page.getByLabel('Note (optional)').fill('late night');
+    await page.getByRole('button', { name: 'Log Check-in' }).click();
+    await page.getByRole('button', { name: "Update today's check-in" }).click();
+    await expect(page.getByLabel('Note (optional)')).toHaveValue('late night');
+
+    await page.clock.setFixedTime(new Date(2026, 9, 22, 0, 0, 30));
+    await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // the app's day check
+    await expect(page.getByLabel('Note (optional)')).toHaveValue('');
+    await expect(page.getByRole('button', { name: '3', exact: true }).nth(0)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: '3', exact: true }).nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Log Check-in' }).click();
+    await expect.poll(async () => (await saved(page)).symptomLogs).toHaveLength(2);
+    const [yesterday, today] = (await saved(page)).symptomLogs;
+    expect(yesterday).toMatchObject({ energy: 1, notes: 'late night' });
+    expect(today).toMatchObject({ energy: 3, mood: 3 });
+    expect(today).not.toHaveProperty('notes');
   });
 
   test('a check-in without a note works as before', async ({ page }) => {

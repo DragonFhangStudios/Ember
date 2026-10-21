@@ -1,21 +1,37 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Heart, Battery, Send, NotebookPen } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { CHECK_IN_NOTE_MAX } from '../lib/progression';
+import { SymptomLog } from '../types';
 
 interface SymptomCheckInProps {
   onComplete: (energy: number, mood: number, note: string) => void;
   checkedInToday: boolean;
-  /** Today's note, so updating the check-in starts from it (and never drops it by accident). */
-  todayNote?: string;
+  /**
+   * Today's saved check-in. Updating starts from all of it (energy, mood and
+   * note), so changing one never overwrites the others by accident.
+   */
+  today?: SymptomLog;
+  /** The local day (Date.toDateString()); a new day starts with a fresh form. */
+  day: string;
 }
 
-export function SymptomCheckIn({ onComplete, checkedInToday, todayNote = '' }: SymptomCheckInProps) {
-  const [energy, setEnergy] = useState(3);
-  const [mood, setMood] = useState(3);
-  const [note, setNote] = useState('');
+const FRESH = { energy: 3, mood: 3, note: '' };
+
+export function SymptomCheckIn({ onComplete, checkedInToday, today, day }: SymptomCheckInProps) {
+  const [energy, setEnergy] = useState(FRESH.energy);
+  const [mood, setMood] = useState(FRESH.mood);
+  const [note, setNote] = useState(FRESH.note);
   const [isEditing, setIsEditing] = useState(false);
   const noteId = useId();
+
+  // Nothing from yesterday's form carries into a new day.
+  useEffect(() => {
+    setEnergy(FRESH.energy);
+    setMood(FRESH.mood);
+    setNote(FRESH.note);
+    setIsEditing(false);
+  }, [day]);
 
   const handleSubmit = () => {
     onComplete(energy, mood, note);
@@ -23,7 +39,9 @@ export function SymptomCheckIn({ onComplete, checkedInToday, todayNote = '' }: S
   };
 
   const startUpdate = () => {
-    setNote(todayNote);
+    setEnergy(today?.energy ?? FRESH.energy);
+    setMood(today?.mood ?? FRESH.mood);
+    setNote(today?.notes ?? FRESH.note);
     setIsEditing(true);
   };
 
@@ -68,6 +86,7 @@ export function SymptomCheckIn({ onComplete, checkedInToday, todayNote = '' }: S
               <button
                 key={val}
                 onClick={() => setEnergy(val)}
+                aria-pressed={energy === val}
                 className={cn(
                   "flex-1 h-12 rounded-xl transition-all font-bold",
                   energy === val 
@@ -94,6 +113,7 @@ export function SymptomCheckIn({ onComplete, checkedInToday, todayNote = '' }: S
               <button
                 key={val}
                 onClick={() => setMood(val)}
+                aria-pressed={mood === val}
                 className={cn(
                   "flex-1 h-12 rounded-xl transition-all font-bold",
                   mood === val 

@@ -10,6 +10,8 @@ interface QuestItemProps {
   onToggle: (id: string) => void;
   /** Opens the quest's options (correct a tap, edit, delete); omitted when it has none. */
   onOptions?: (id: string) => void;
+  /** For custom quests: the id of the note on their shared daily energy limit. */
+  rewardNoteId?: string;
   customQuestTypes?: CustomQuestType[];
   key?: string | number;
 }
@@ -30,7 +32,7 @@ const TYPE_COLORS: Record<string, string> = {
   custom: 'text-purple-500 bg-purple-50',
 };
 
-export function QuestItem({ quest, onToggle, onOptions, customQuestTypes = [] }: QuestItemProps) {
+export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, customQuestTypes = [] }: QuestItemProps) {
   const customType = customQuestTypes.find(t => t.id === quest.type);
   
   const IconComponent = customType 
@@ -60,6 +62,7 @@ export function QuestItem({ quest, onToggle, onOptions, customQuestTypes = [] }:
         whileHover={{ scale: 1.01 }}
         whileTap={{ scale: 0.99 }}
         onClick={() => onToggle(quest.id)}
+        aria-describedby={quest.isCustom ? rewardNoteId : undefined}
         className="flex-1 min-w-0 flex items-center gap-3 sm:gap-4 p-4 rounded-2xl text-left cursor-pointer"
       >
         <span className={cn("p-3 rounded-xl flex-shrink-0 transition-colors", chipClasses(colorClass), quest.completed && "opacity-60")}>
@@ -92,8 +95,16 @@ export function QuestItem({ quest, onToggle, onOptions, customQuestTypes = [] }:
         </span>
 
         <span className="flex flex-col items-end gap-1 flex-shrink-0">
-          <span className="flex items-center gap-1 text-gold-fg font-bold text-sm">
-            <span>+{quest.points}</span>
+          <span className="flex items-center gap-1 text-gold-fg font-bold text-sm" data-reward>
+            {/* Custom quests show their rate: energy per step, under a shared daily limit. */}
+            {quest.isCustom ? (
+              <span>
+                +{Math.round(quest.points / quest.target)}
+                {isMultiStep && <span className="text-xs">/step</span>}
+              </span>
+            ) : (
+              <span>+{quest.points}</span>
+            )}
             <span className="w-2 h-2 rounded-full bg-dragon-gold" />
           </span>
           {quest.completed ? (

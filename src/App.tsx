@@ -4,6 +4,7 @@ import { Sparkles, LayoutDashboard, Timer, Heart, Settings, ShoppingBag, Trendin
 import { UserState, DragonStage, Quest, CosmeticItem, CustomQuestType } from './types';
 import {
   ActionResult,
+  CUSTOM_QUEST_ENERGY_PER_STEP,
   DAILY_LIMITS,
   advanceQuest,
   canCorrectQuest,
@@ -11,6 +12,7 @@ import {
   createInitialState,
   CustomQuestDetails,
   dailyFor,
+  dayKey,
   deleteCustomQuest,
   editCustomQuest,
   evaluateBadges,
@@ -660,11 +662,15 @@ export default function App() {
                   <Plus className="w-3 h-3" /> Add Custom
                 </button>
               </div>
+              {state.quests.some(q => q.isCustom) && (
+                <CustomQuestEnergyNote left={Math.max(0, DAILY_LIMITS.customQuestEnergy - dailyFor(state, new Date()).customQuestEnergy)} />
+              )}
               {state.quests.map((quest: Quest) => (
                 <QuestItem 
                   key={quest.id} 
                   quest={quest} 
                   onToggle={handleQuestTap}
+                  rewardNoteId={CUSTOM_ENERGY_NOTE_ID}
                   onOptions={quest.isCustom || canCorrectQuest(state, quest, new Date(nowMs)) ? id => setQuestOptions({ id, view: 'menu' }) : undefined}
                   customQuestTypes={state.customQuestTypes}
                 />
@@ -691,7 +697,8 @@ export default function App() {
               <SymptomCheckIn
                 onComplete={handleCheckInComplete}
                 checkedInToday={hasCheckedInToday(state, new Date())}
-                todayNote={todaysCheckIn(state, new Date())?.notes}
+                today={todaysCheckIn(state, new Date())}
+                day={dayKey(new Date())}
               />
             </motion.div>
           )}
@@ -791,6 +798,18 @@ export default function App() {
         </div>
       </nav>
     </div>
+  );
+}
+
+const CUSTOM_ENERGY_NOTE_ID = 'custom-quest-energy';
+
+/** Custom quests' shared daily energy limit (each custom quest row is described by this). */
+function CustomQuestEnergyNote({ left }: { left: number }) {
+  return (
+    <p id={CUSTOM_ENERGY_NOTE_ID} data-energy-left={left} className="text-xs text-fg-muted -mt-2">
+      Custom quests: +{CUSTOM_QUEST_ENERGY_PER_STEP} energy per step, up to {DAILY_LIMITS.customQuestEnergy} a day together.{' '}
+      {left > 0 ? `${left} left today.` : "Today's is all earned, and they still count for your streak."}
+    </p>
   );
 }
 
