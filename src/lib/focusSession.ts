@@ -77,6 +77,8 @@ export function settle(state: UserState, now: Date): ActionResult {
     ...state,
     focus: finished,
     completedFocusSessions: [...state.completedFocusSessions, focus.id].slice(-COMPLETED_FOCUS_SESSIONS_KEPT),
+    // Counted with the id, in the same transaction: exactly once per session.
+    focusSessionsCompleted: state.focusSessionsCompleted + 1,
   };
   return completeFocusSessionLate(recorded, new Date(completedAt), now);
 }

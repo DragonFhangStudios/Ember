@@ -71,7 +71,7 @@ export const BADGES: Badge[] = [
   { id: 'badge_streak_3', name: 'Consistent Companion', description: 'Do one meaningful activity (a quest, focus session, or check-in) 3 days in a row.', icon: '✨' },
   { id: 'badge_streak_7', name: 'Week Warrior', description: 'Do one meaningful activity (a quest, focus session, or check-in) 7 days in a row.', icon: '🔥' },
   { id: 'badge_pet_10', name: 'Dragon Bonder', description: 'Pet your dragon 10 times.', icon: '❤️' },
-  { id: 'badge_focus_5', name: 'Zen Master', description: 'Complete 5 focus quests.', icon: '🧘' },
+  { id: 'badge_focus_5', name: 'Zen Master', description: 'Complete 5 focus sessions.', icon: '🧘' },
   { id: 'badge_days_100', name: 'Hundred Days Together', description: 'Share 100 active days with your dragon.', icon: '🌱' },
   { id: 'badge_days_200', name: 'Two Hundred Days Together', description: 'Share 200 active days with your dragon.', icon: '🌳' },
   { id: 'badge_days_365', name: 'A Year Together', description: 'Share 365 active days with your dragon.', icon: '🌟' },

@@ -120,6 +120,7 @@ describe('completion is rewarded exactly once', () => {
     const once = bondTotal(s.bond);
     for (const t of [after(at(20), DUR + 1), at(20, 15), at(21)]) s = settle(reload(s, t), t).state;
     expect(bondTotal(s.bond)).toBe(once);
+    expect(s.focusSessionsCompleted).toBe(1);
   });
 
   it('a running copy of an already-recorded session completes without a reward', () => {
@@ -128,6 +129,7 @@ describe('completion is rewarded exactly once', () => {
     const r = settle(replay, at(20, 12));
     expect(bondTotal(r.state.bond)).toBe(bondTotal(done.bond));
     expect(r.state.focus?.status).toBe('finished');
+    expect(r.state.focusSessionsCompleted, 'counted once toward Zen Master').toBe(1);
   });
 
   it('nothing happens before the end time', () => {

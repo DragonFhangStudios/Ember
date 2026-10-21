@@ -6,8 +6,13 @@ import {
   ActionResult,
   DAILY_LIMITS,
   advanceQuest,
+  canCorrectQuest,
+  correctQuest,
   createInitialState,
+  CustomQuestDetails,
   dailyFor,
+  deleteCustomQuest,
+  editCustomQuest,
   evaluateBadges,
   feedDragon,
   hasCheckedInToday,
@@ -31,6 +36,7 @@ import { Wardrobe } from './components/Wardrobe';
 import { Insights } from './components/Insights';
 import { Badges } from './components/Badges';
 import { CustomQuestForm } from './components/CustomQuestForm';
+import { QuestOptions, QuestOptionsView } from './components/QuestOptions';
 import { DailyDragonFact } from './components/DailyDragonFact';
 import { factForDay } from './lib/dragonFacts/daily';
 import { BondingActions } from './components/BondingActions';
@@ -43,7 +49,7 @@ import { cn } from './lib/utils';
 import { THEME_HINT_KEY, ThemePreference, readableBackground, resolveDark } from './lib/theme';
 import { useSystemDark } from './lib/useMediaQuery';
 import { FOUNDER_CAUGHT_MS, Spoken, createSpeaker, founderChance, tapContext } from './lib/dialogue/select';
-import { Intent, Moment, daysAway, isSoftDay, momentFor, openingMoment } from './lib/dialogue/events';
+import { Intent, Moment, daysAway, isSoftDay, momentFor, openingMoment, todaysCheckIn } from './lib/dialogue/events';
 
 // Pre-IndexedDB save. Migrated once into the store and then left untouched as a backup.
 const STORAGE_KEY = 'ember_user_state_v2';
@@ -111,6 +117,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const tabContentRef = useRef<HTMLDivElement>(null);
   const [showCustomQuest, setShowCustomQuest] = useState(false);
+  // A quest's options (correct a tap, edit, delete) and the quest being edited.
+  const [questOptions, setQuestOptions] = useState<({ id: string } & QuestOptionsView) | null>(null);
+  const [editingQuestId, setEditingQuestId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isPetted, setIsPetted] = useState(false);
@@ -346,7 +355,7 @@ export default function App() {
   const napping = state?.isNapping ?? false;
   useEffect(() => {
     cancelEasterEgg();
-  }, [softDay, napping, focusOngoing, activeTab, showCustomQuest, showSettings, showResetConfirm]);
+  }, [softDay, napping, focusOngoing, activeTab, showCustomQuest, showSettings, showResetConfirm, questOptions, editingQuestId]);
 
   // When the session's end time passes, settle it. Any tab may do this; the
   // store transaction makes sure it's rewarded once.
@@ -403,6 +412,30 @@ export default function App() {
 
   const handleUpdateQuestProgress = (id: string, increment: number = 1) => {
     runAction((current, now) => advanceQuest(current, id, now, increment), 'quest');
+  };
+
+  // Tapping a quest done by mistake offers to correct it (with confirmation).
+  const handleQuestTap = (id: string) => {
+    const quest = state?.quests.find(q => q.id === id);
+    if (state && quest?.completed) {
+      if (canCorrectQuest(state, quest, new Date())) setQuestOptions({ id, view: 'correct', seen: quest.progress });
+      return;
+    }
+    handleUpdateQuestProgress(id);
+  };
+
+  const handleCorrectQuest = (id: string, seen: number) => {
+    setQuestOptions(null);
+    runAction((current, now) => correctQuest(current, id, seen, now));
+  };
+
+  const handleEditQuest = (id: string, details: CustomQuestDetails) => {
+    runAction((current, now) => editCustomQuest(current, id, details, now));
+  };
+
+  const handleDeleteQuest = (id: string) => {
+    setQuestOptions(null);
+    runAction((current, now) => deleteCustomQuest(current, id, now));
   };
 
   const handleAddCustomQuest = (quest: Quest) => {
@@ -497,8 +530,8 @@ export default function App() {
     showFeedback(null, speak({ context }, state, new Date(now)), false, false);
   };
 
-  const handleCheckInComplete = (energy: number, mood: number) => {
-    runAction((current, now) => logCheckIn(current, energy, mood, now), 'checkIn');
+  const handleCheckInComplete = (energy: number, mood: number, note: string) => {
+    runAction((current, now) => logCheckIn(current, energy, mood, now, note), 'checkIn');
   };
 
   const handleFocusStart = () => {
@@ -531,6 +564,9 @@ export default function App() {
       </div>
     );
   }
+
+  // The quest being edited, if it still exists (another tab may have deleted it).
+  const editingQuest = (editingQuestId !== null && state.quests.find(q => q.id === editingQuestId)) || null;
 
   return (
     <div className="pb-nav min-h-screen transition-colors duration-700 bg-app-custom" style={{ backgroundColor: readableBackground(state.themeColor, dark) ?? undefined }}>
@@ -628,7 +664,8 @@ export default function App() {
                 <QuestItem 
                   key={quest.id} 
                   quest={quest} 
-                  onToggle={handleUpdateQuestProgress} 
+                  onToggle={handleQuestTap}
+                  onOptions={quest.isCustom || canCorrectQuest(state, quest, new Date(nowMs)) ? id => setQuestOptions({ id, view: 'menu' }) : undefined}
                   customQuestTypes={state.customQuestTypes}
                 />
               ))}
@@ -651,7 +688,11 @@ export default function App() {
 
           {activeTab === 'checkin' && (
             <motion.div key="checkin" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-              <SymptomCheckIn onComplete={handleCheckInComplete} checkedInToday={hasCheckedInToday(state, new Date())} />
+              <SymptomCheckIn
+                onComplete={handleCheckInComplete}
+                checkedInToday={hasCheckedInToday(state, new Date())}
+                todayNote={todaysCheckIn(state, new Date())?.notes}
+              />
             </motion.div>
           )}
 
@@ -689,6 +730,38 @@ export default function App() {
           customQuestTypes={state.customQuestTypes}
           onAddType={handleAddCustomType}
         />
+      </Dialog>
+
+      <QuestOptions
+        quest={(questOptions && state.quests.find(q => q.id === questOptions.id)) || null}
+        state={questOptions ?? { view: 'menu' }}
+        canCorrect={!!questOptions && state.quests.some(q => q.id === questOptions.id && canCorrectQuest(state, q, new Date()))}
+        onView={view => setQuestOptions(o => (o ? { id: o.id, ...view } : o))}
+        onCorrect={handleCorrectQuest}
+        onEdit={id => {
+          setQuestOptions(null);
+          setEditingQuestId(id);
+        }}
+        onDelete={handleDeleteQuest}
+        onClose={() => setQuestOptions(null)}
+      />
+
+      <Dialog
+        open={editingQuest !== null}
+        onClose={() => setEditingQuestId(null)}
+        labelledBy="custom-quest-title"
+        panelClassName="max-w-md"
+      >
+        {editingQuest && (
+          <CustomQuestForm
+            editing={editingQuest}
+            onSave={details => handleEditQuest(editingQuest.id, details)}
+            onAdd={() => {}}
+            onClose={() => setEditingQuestId(null)}
+            customQuestTypes={state.customQuestTypes}
+            onAddType={handleAddCustomType}
+          />
+        )}
       </Dialog>
 
       <SettingsSheet

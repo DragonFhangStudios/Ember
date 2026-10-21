@@ -1,15 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { Plus, X, Sparkles, Sun, Pill, Timer, Heart, Palette } from 'lucide-react';
+import { Check, Plus, X, Sparkles, Sun, Pill, Timer, Heart, Palette } from 'lucide-react';
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
 import { chipClasses, labelClasses } from '../lib/questColors';
+import { CUSTOM_QUEST_ENERGY_PER_STEP, CUSTOM_QUEST_TARGET_MAX, CustomQuestDetails, customQuestTarget } from '../lib/progression';
 
 interface CustomQuestFormProps {
   onAdd: (quest: Quest) => void;
   onClose: () => void;
   customQuestTypes: CustomQuestType[];
   onAddType: (type: CustomQuestType) => void;
+  /** Editing an existing quest: the form starts with its details and saves them. */
+  editing?: Quest;
+  onSave?: (details: CustomQuestDetails) => void;
 }
 
 const DEFAULT_TYPES = [
@@ -30,11 +34,11 @@ const AVAILABLE_COLORS = [
   { label: 'Orange', value: 'text-orange-500 bg-orange-50' },
 ];
 
-export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }: CustomQuestFormProps) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [target, setTarget] = useState(1);
-  const [selectedType, setSelectedType] = useState<QuestType>('custom');
+export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType, editing, onSave }: CustomQuestFormProps) {
+  const [title, setTitle] = useState(editing?.title ?? '');
+  const [description, setDescription] = useState(editing?.description ?? '');
+  const [target, setTarget] = useState(editing?.target ?? 1);
+  const [selectedType, setSelectedType] = useState<QuestType>(editing?.type ?? 'custom');
   const [isCreatingType, setIsCreatingType] = useState(false);
   
   // New type state
@@ -43,6 +47,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
   const [newTypeColor, setNewTypeColor] = useState(AVAILABLE_COLORS[0].value);
 
   const allTypes = [...DEFAULT_TYPES, ...customQuestTypes];
+  const fieldId = useId();
 
   // Switching views removes the button that was pressed, so move focus to the
   // new view's heading (which also renames the dialog for screen readers).
@@ -56,6 +61,13 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+    const steps = customQuestTarget(target);
+
+    if (editing) {
+      onSave?.({ title, description, type: selectedType, target: steps });
+      onClose();
+      return;
+    }
 
     const newQuest: Quest = {
       id: `custom_${Date.now()}`,
@@ -63,11 +75,11 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
       description,
       type: selectedType,
       completed: false,
-      points: 10 * target,
+      points: CUSTOM_QUEST_ENERGY_PER_STEP * steps,
       isDaily: true,
       isCustom: true,
       progress: 0,
-      target: Math.max(1, target),
+      target: steps,
     };
 
     onAdd(newQuest);
@@ -94,7 +106,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
     <div className="bg-surface rounded-3xl p-6 sm:p-8 shadow-2xl border border-line max-w-md w-full mx-auto max-h-[90vh] overflow-y-auto">
       <div className="flex justify-between items-center mb-6">
         <h2 id="custom-quest-title" ref={titleRef} tabIndex={-1} className="serif text-2xl font-bold text-fg outline-none">
-          {isCreatingType ? 'New Quest Type' : 'Add Custom Quest'}
+          {isCreatingType ? 'New Quest Type' : editing ? 'Edit Quest' : 'Add Custom Quest'}
         </h2>
         <button onClick={onClose} aria-label="Close" className="w-11 h-11 -mr-2 flex-shrink-0 flex items-center justify-center text-fg-muted hover:text-fg">
           <X className="w-6 h-6" />
@@ -181,10 +193,11 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
+            <label htmlFor={`${fieldId}-title`} className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Quest Title
             </label>
             <input
+              id={`${fieldId}-title`}
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -209,6 +222,7 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
                     key={t.id}
                     type="button"
                     onClick={() => setSelectedType(t.id)}
+                    aria-pressed={selectedType === t.id}
                     className={cn(
                       "min-h-11 px-3 py-2 rounded-xl text-left transition-all border flex items-center gap-2 min-w-0",
                       selectedType === t.id ? "border-dragon-gold bg-dragon-gold/5" : "border-transparent bg-surface-muted"
@@ -235,13 +249,14 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
+            <label htmlFor={`${fieldId}-target`} className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Target Steps (e.g., 4 glasses of water)
             </label>
             <input
+              id={`${fieldId}-target`}
               type="number"
               min="1"
-              max="100"
+              max={CUSTOM_QUEST_TARGET_MAX}
               value={target}
               onChange={(e) => setTarget(parseInt(e.target.value) || 1)}
               className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg"
@@ -249,10 +264,11 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
+            <label htmlFor={`${fieldId}-description`} className="block text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">
               Description (Optional)
             </label>
             <textarea
+              id={`${fieldId}-description`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="A small step for you, a big gain for Ember."
@@ -264,8 +280,8 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType }:
             type="submit"
             className="w-full py-4 bg-dragon-gold text-dragon-ink rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-dragon-gold/90 transition-all shadow-xl shadow-dragon-gold/20"
           >
-            <Plus className="w-5 h-5" />
-            Add Quest
+            {editing ? <Check className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+            {editing ? 'Save Changes' : 'Add Quest'}
           </button>
         </form>
       )}

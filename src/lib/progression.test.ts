@@ -90,6 +90,9 @@ describe('daily rollover', () => {
       checkInRewarded: false,
       meaningfulActivity: false,
       customQuestGrowth: 0,
+      customQuestEnergy: 0,
+      questRewards: {},
+      autoCompletedQuests: [],
     });
   });
 

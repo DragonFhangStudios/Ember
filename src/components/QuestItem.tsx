@@ -1,6 +1,6 @@
 import { motion } from 'motion/react';
 import * as LucideIcons from 'lucide-react';
-import { CheckCircle2, Circle, Pill, Timer, Sun, Heart, Sparkles } from 'lucide-react';
+import { CheckCircle2, Circle, MoreVertical, Pill, Timer, Sun, Heart, Sparkles } from 'lucide-react';
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
 import { chipClasses } from '../lib/questColors';
@@ -8,6 +8,8 @@ import { chipClasses } from '../lib/questColors';
 interface QuestItemProps {
   quest: Quest;
   onToggle: (id: string) => void;
+  /** Opens the quest's options (correct a tap, edit, delete); omitted when it has none. */
+  onOptions?: (id: string) => void;
   customQuestTypes?: CustomQuestType[];
   key?: string | number;
 }
@@ -28,7 +30,7 @@ const TYPE_COLORS: Record<string, string> = {
   custom: 'text-purple-500 bg-purple-50',
 };
 
-export function QuestItem({ quest, onToggle, customQuestTypes = [] }: QuestItemProps) {
+export function QuestItem({ quest, onToggle, onOptions, customQuestTypes = [] }: QuestItemProps) {
   const customType = customQuestTypes.find(t => t.id === quest.type);
   
   const IconComponent = customType 
@@ -42,65 +44,76 @@ export function QuestItem({ quest, onToggle, customQuestTypes = [] }: QuestItemP
   const isMultiStep = quest.target > 1;
   const progressPercent = (quest.progress / quest.target) * 100;
 
+  // The row is a real button (Enter and Space work natively), with an
+  // optional options button beside it; nothing interactive is nested.
   return (
-    <motion.div
-      whileHover={{ scale: 1.01 }}
-      whileTap={{ scale: 0.99 }}
-      onClick={() => onToggle(quest.id)}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onToggle(quest.id);
-        }
-      }}
-      role="button"
-      tabIndex={0}
+    <div
       className={cn(
-        "group flex items-center gap-3 sm:gap-4 p-4 rounded-2xl border transition-all cursor-pointer",
-        quest.completed 
-          ? "bg-surface/60 border-transparent" 
+        "group flex items-stretch rounded-2xl border transition-all",
+        quest.completed
+          ? "bg-surface/60 border-transparent"
           : "bg-surface border-line shadow-sm hover:shadow-md hover:border-dragon-gold/30"
       )}
     >
-      <div className={cn("p-3 rounded-xl flex-shrink-0 transition-colors", chipClasses(colorClass), quest.completed && "opacity-60")}>
-        <IconComponent className="w-5 h-5" />
-      </div>
+      <motion.button
+        type="button"
+        whileHover={{ scale: 1.01 }}
+        whileTap={{ scale: 0.99 }}
+        onClick={() => onToggle(quest.id)}
+        className="flex-1 min-w-0 flex items-center gap-3 sm:gap-4 p-4 rounded-2xl text-left cursor-pointer"
+      >
+        <span className={cn("p-3 rounded-xl flex-shrink-0 transition-colors", chipClasses(colorClass), quest.completed && "opacity-60")}>
+          <IconComponent className="w-5 h-5" />
+        </span>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-center gap-x-2">
-          <h3 className={cn("font-bold break-words", quest.completed ? "text-fg-muted line-through" : "text-fg")}>
-            {quest.title}
-          </h3>
+        <span className="flex-1 min-w-0">
+          <span className="flex flex-wrap items-center gap-x-2">
+            <span className={cn("font-bold break-words", quest.completed ? "text-fg-muted line-through" : "text-fg")}>
+              {quest.title}
+            </span>
+            {isMultiStep && !quest.completed && (
+              <span className="text-xs font-bold bg-fg/5 px-1.5 py-0.5 rounded text-fg-muted">
+                {quest.progress}/{quest.target}
+              </span>
+            )}
+            {quest.completed && <span className="sr-only">(done)</span>}
+          </span>
+          <span className="block text-xs text-fg-muted break-words">{quest.description}</span>
+
           {isMultiStep && !quest.completed && (
-            <span className="text-xs font-bold bg-fg/5 px-1.5 py-0.5 rounded text-fg-muted">
-              {quest.progress}/{quest.target}
+            <span className="block mt-2 w-full bg-fg/5 h-1 rounded-full overflow-hidden">
+              <motion.span
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercent}%` }}
+                className="block h-full bg-dragon-gold"
+              />
             </span>
           )}
-        </div>
-        <p className="text-xs text-fg-muted">{quest.description}</p>
-        
-        {isMultiStep && !quest.completed && (
-          <div className="mt-2 w-full bg-fg/5 h-1 rounded-full overflow-hidden">
-            <motion.div 
-              initial={{ width: 0 }}
-              animate={{ width: `${progressPercent}%` }}
-              className="h-full bg-dragon-gold"
-            />
-          </div>
-        )}
-      </div>
+        </span>
 
-      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        <div className="flex items-center gap-1 text-gold-fg font-bold text-sm">
-          <span>+{quest.points}</span>
-          <div className="w-2 h-2 rounded-full bg-dragon-gold" />
-        </div>
-        {quest.completed ? (
-          <CheckCircle2 className="w-6 h-6 text-dragon-gold" />
-        ) : (
-          <Circle className="w-6 h-6 text-dragon-gold/30 group-hover:text-dragon-gold/60" />
-        )}
-      </div>
-    </motion.div>
+        <span className="flex flex-col items-end gap-1 flex-shrink-0">
+          <span className="flex items-center gap-1 text-gold-fg font-bold text-sm">
+            <span>+{quest.points}</span>
+            <span className="w-2 h-2 rounded-full bg-dragon-gold" />
+          </span>
+          {quest.completed ? (
+            <CheckCircle2 className="w-6 h-6 text-dragon-gold" />
+          ) : (
+            <Circle className="w-6 h-6 text-dragon-gold/30 group-hover:text-dragon-gold/60" />
+          )}
+        </span>
+      </motion.button>
+      {onOptions && (
+        <button
+          type="button"
+          onClick={() => onOptions(quest.id)}
+          aria-label={`Options for ${quest.title}`}
+          title="Options"
+          className="w-11 flex-shrink-0 -ml-2 mr-1 flex items-center justify-center rounded-xl text-fg-muted hover:text-fg"
+        >
+          <MoreVertical className="w-5 h-5" />
+        </button>
+      )}
+    </div>
   );
 }

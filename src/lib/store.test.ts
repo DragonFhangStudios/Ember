@@ -4,7 +4,7 @@ import { UserState } from '../types';
 import { bondTotal } from './evolution';
 import { FOCUS_DURATION_MS } from './focusTimer';
 import { pauseFocus, resetFocus, settle, startFocus } from './focusSession';
-import { REWARDS, advanceQuest, createInitialState, migrateState } from './progression';
+import { DAILY_LIMITS, REWARDS, advanceQuest, correctQuest, createInitialState, deleteCustomQuest, editCustomQuest, migrateState } from './progression';
 import { EmberStore, LegacySaveUnreadableError, StoreUnavailableError, openStore } from './store';
 
 // fake-indexeddb implements IndexedDB's transaction scheduling: readwrite
@@ -243,6 +243,103 @@ describe('atomic updates across tabs', () => {
     expect(saved.goldenScales).toBe(REWARDS.medication.scales);
     a.store.close();
     b.store.close();
+  });
+});
+
+describe('quest corrections, edits and caps across tabs (#19)', () => {
+  const custom = (id: string, target = 1) => ({
+    id, title: id, description: '', type: 'custom', completed: false,
+    points: 10 * target, isDaily: true, isCustom: true, progress: 0, target,
+  });
+  const addQuests = (...ids: [string, number][]) => (s: UserState) => ({ ...s, quests: [...s.quests, ...ids.map(([id, t]) => custom(id, t))] });
+
+  it('the same correction confirmed in two tabs takes off one step, not two', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    for (let i = 0; i < 3; i++) await act(a.store, NOW, s => advanceQuest(s, 'q5', NOW).state);
+    // Both tabs showed 3/4 when the player confirmed.
+    await Promise.all([
+      act(a.store, NOW, s => correctQuest(s, 'q5', 3, NOW).state),
+      act(b.store, NOW, s => correctQuest(s, 'q5', 3, NOW).state),
+    ]);
+    const saved = (await b.store.read()).state;
+    expect(saved.quests.find(q => q.id === 'q5')!.progress).toBe(2);
+    expect(saved.energy).toBe(50 + 15);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('a correction in one tab and a redo in another never pay twice', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    await act(a.store, NOW, s => advanceQuest(s, 'q2', NOW).state);
+    const earned = (await a.store.read()).state;
+    for (let i = 0; i < 10; i++) {
+      await Promise.all([
+        act(a.store, NOW, s => correctQuest(s, 'q2', 1, NOW).state),
+        act(b.store, NOW, s => advanceQuest(s, 'q2', NOW).state),
+      ]);
+    }
+    const saved = (await b.store.read()).state;
+    expect([saved.energy, saved.goldenScales, bondTotal(saved.bond)]).toEqual([earned.energy, earned.goldenScales, bondTotal(earned.bond)]);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('the custom-quest energy cap holds when three tabs tap at once', async () => {
+    const h = harness();
+    const tabs = await Promise.all([h.open(), h.open(), h.open()]);
+    const ids: [string, number][] = Array.from({ length: 9 }, (_, i) => [`c${i}`, 1]);
+    await act(tabs[0].store, NOW, addQuests(...ids, ['big', 4]));
+    await Promise.all([
+      ...ids.map(([id], i) => act(tabs[i % 3].store, NOW, s => advanceQuest(s, id, NOW).state)),
+      ...Array.from({ length: 4 }, (_, i) => act(tabs[i % 3].store, NOW, s => advanceQuest(s, 'big', NOW).state)),
+    ]);
+    const saved = (await tabs[0].store.read()).state;
+    expect(saved.energy).toBe(50 + DAILY_LIMITS.customQuestEnergy);
+    expect(saved.daily.customQuestEnergy).toBe(DAILY_LIMITS.customQuestEnergy);
+    expect(saved.daily.customQuestGrowth).toBe(DAILY_LIMITS.customQuestGrowth);
+    expect(saved.quests.filter(q => q.isCustom).every(q => q.completed)).toBe(true);
+    tabs.forEach(t => t.store.close());
+  });
+
+  it('deleting in one tab and re-adding in another keeps the allowance spent', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    await act(a.store, NOW, addQuests(['x', 4]));
+    for (let i = 0; i < 4; i++) await act(a.store, NOW, s => advanceQuest(s, 'x', NOW).state);
+    await Promise.all([
+      act(a.store, NOW, s => deleteCustomQuest(s, 'x', NOW).state),
+      act(b.store, NOW, addQuests(['y', 4])),
+    ]);
+    for (let i = 0; i < 4; i++) await act(b.store, NOW, s => advanceQuest(s, 'y', NOW).state);
+    const saved = (await a.store.read()).state;
+    expect(saved.energy).toBe(50 + 40);
+    expect(saved.quests.map(q => q.id)).not.toContain('x');
+    a.store.close();
+    b.store.close();
+  });
+
+  it("an edit from a tab that didn't see the quest deleted changes nothing", async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    await act(a.store, NOW, addQuests(['x', 2]));
+    await act(a.store, NOW, s => deleteCustomQuest(s, 'x', NOW).state);
+    await act(b.store, NOW, s => editCustomQuest(s, 'x', { title: 'back?', description: '', type: 'custom', target: 3 }, NOW).state);
+    const saved = (await b.store.read()).state;
+    expect(saved.quests.some(q => q.id === 'x')).toBe(false);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('a focus session finished while several tabs are open counts once toward Zen Master', async () => {
+    const h = harness();
+    const [a, b, c] = await Promise.all([h.open(), h.open(), h.open()]);
+    await act(a.store, NOW, s => startFocus(s, 'zen', NOW));
+    const end = new Date(NOW.getTime() + FOCUS_DURATION_MS);
+    await Promise.all([act(a.store, end), act(b.store, end), act(c.store, end), act(b.store, end)]);
+    expect((await c.store.read()).state.focusSessionsCompleted).toBe(1);
+    [a, b, c].forEach(t => t.store.close());
   });
 });
 

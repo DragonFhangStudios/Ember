@@ -102,6 +102,24 @@ test('every screen and dialog fits the phone, with tap targets of at least 44×4
   await expectGoodLayout(page, 'Add Custom Quest');
   await page.getByRole('button', { name: 'New Type' }).click();
   await expectGoodLayout(page, 'New Quest Type');
+  await page.keyboard.press('Escape');
+
+  // Quest options (#19): correcting a tap, editing and deleting a custom quest.
+  await page.getByRole('button', { name: 'Add Custom' }).click();
+  await page.getByLabel('Quest Title').fill('Stretch for five minutes, slowly and gently');
+  await page.getByRole('button', { name: 'Add Quest' }).click();
+  await page.getByText('Morning Routine').click();
+  await page.getByText('Morning Routine').click();
+  await expectGoodLayout(page, 'Mark as not done?');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Options for Stretch for five minutes, slowly and gently' }).click();
+  await expectGoodLayout(page, 'Stretch for five minutes, slowly and gently');
+  await page.getByRole('button', { name: 'Delete Quest' }).click();
+  await expectGoodLayout(page, 'Delete this quest?');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Options for Stretch for five minutes, slowly and gently' }).click();
+  await page.getByRole('button', { name: 'Edit Quest' }).click();
+  await expectGoodLayout(page, 'Edit Quest');
 });
 
 test('the header shows the logo and three controls, all fully on screen', async ({ page }) => {
@@ -134,7 +152,7 @@ test('the bottom navigation never covers content, including on notched phones', 
 
 test('reward and streak messages appear near the quest that was tapped', async ({ page }) => {
   // The last one-step quest, at the bottom of the list.
-  const quest = page.getByRole('button', { name: /Symptom Check-in/ });
+  const quest = page.getByRole('button', { name: /^Symptom Check-in/ });
   await quest.scrollIntoViewIfNeeded();
   await press(quest);
 
@@ -218,7 +236,7 @@ test('text follows the browser font size and still fits', async ({ page }) => {
 });
 
 test('quests also work from the keyboard (Enter or Space)', async ({ page }) => {
-  await page.getByRole('button', { name: /Morning Routine/ }).focus();
+  await page.getByRole('button', { name: /^Morning Routine/ }).focus();
   await page.keyboard.press('Enter');
   await expect.poll(async () => (await readSave(page))?.state.energy).toBe(60);
 });

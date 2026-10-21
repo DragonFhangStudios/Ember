@@ -1,21 +1,30 @@
-import { useState } from 'react';
-import { motion } from 'motion/react';
-import { Heart, Battery, Send } from 'lucide-react';
+import { useId, useState } from 'react';
+import { Heart, Battery, Send, NotebookPen } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { CHECK_IN_NOTE_MAX } from '../lib/progression';
 
 interface SymptomCheckInProps {
-  onComplete: (energy: number, mood: number) => void;
+  onComplete: (energy: number, mood: number, note: string) => void;
   checkedInToday: boolean;
+  /** Today's note, so updating the check-in starts from it (and never drops it by accident). */
+  todayNote?: string;
 }
 
-export function SymptomCheckIn({ onComplete, checkedInToday }: SymptomCheckInProps) {
+export function SymptomCheckIn({ onComplete, checkedInToday, todayNote = '' }: SymptomCheckInProps) {
   const [energy, setEnergy] = useState(3);
   const [mood, setMood] = useState(3);
+  const [note, setNote] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const noteId = useId();
 
   const handleSubmit = () => {
-    onComplete(energy, mood);
+    onComplete(energy, mood, note);
     setIsEditing(false);
+  };
+
+  const startUpdate = () => {
+    setNote(todayNote);
+    setIsEditing(true);
   };
 
   if (checkedInToday && !isEditing) {
@@ -29,7 +38,7 @@ export function SymptomCheckIn({ onComplete, checkedInToday }: SymptomCheckInPro
           Patterns help you and your doctor. Great job checking in with yourself!
         </p>
         <button
-          onClick={() => setIsEditing(true)}
+          onClick={startUpdate}
           className="mt-4 min-h-11 px-4 text-xs font-bold text-gold-fg uppercase tracking-widest hover:text-ember-fg transition-colors"
         >
           Update today's check-in
@@ -96,6 +105,31 @@ export function SymptomCheckIn({ onComplete, checkedInToday }: SymptomCheckInPro
               </button>
             ))}
           </div>
+        </div>
+
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <label htmlFor={noteId} className="flex items-center gap-2 text-sm font-semibold text-fg-muted uppercase tracking-wider">
+              <NotebookPen className="w-4 h-4" />
+              Note (optional)
+            </label>
+            <span className="text-xs text-fg-muted" aria-hidden="true">
+              {note.length}/{CHECK_IN_NOTE_MAX}
+            </span>
+          </div>
+          <textarea
+            id={noteId}
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            maxLength={CHECK_IN_NOTE_MAX}
+            rows={3}
+            aria-describedby={`${noteId}-hint`}
+            placeholder="Anything you'd like to remember about today?"
+            className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg resize-none"
+          />
+          <p id={`${noteId}-hint`} className="text-xs text-fg-muted mt-1">
+            Private: notes stay on this device. Up to {CHECK_IN_NOTE_MAX} characters.
+          </p>
         </div>
 
         <button
