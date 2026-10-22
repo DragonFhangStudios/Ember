@@ -1,6 +1,6 @@
 import { motion, AnimatePresence, TargetAndTransition } from 'motion/react';
 import { DragonStage } from '../types';
-import { DRAGON_STAGES_DATA } from '../constants';
+import { COSMETICS, DRAGON_STAGES_DATA } from '../constants';
 import { cn } from '../lib/utils';
 import { usePrefersReducedMotion } from '../lib/useMediaQuery';
 import { Sparkles } from 'lucide-react';
@@ -257,11 +257,10 @@ export function DragonAvatar({ stage, name, onTalk, reaction = null, antic = nul
               animate={{ y: 0, opacity: 1 }}
               className="absolute -top-8 left-1/2 -translate-x-1/2 w-16 h-16 bg-surface rounded-full p-1 shadow-lg border border-dragon-gold/20"
             >
-              <img 
-                src={`https://picsum.photos/seed/${equipped.hat}/100/100`} 
-                alt="Hat" 
+              <img
+                src={COSMETICS.find(item => item.id === equipped.hat)?.image}
+                alt="Hat"
                 className="w-full h-full object-cover rounded-full"
-                referrerPolicy="no-referrer"
               />
             </motion.div>
           )}
