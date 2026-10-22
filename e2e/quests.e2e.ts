@@ -33,6 +33,18 @@ async function tapTimes(page: Page, title: string, times: number) {
   }
 }
 
+/**
+ * 23:59:30 local time on the day after today, and 30 s past the midnight that
+ * follows. Always later than the save the test opened with: moving the clock
+ * backwards would (correctly) stop the app from starting a new day.
+ */
+const tomorrow = (h: number, m: number, s: number, extraDays = 0) => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1 + extraDays, h, m, s);
+};
+const lateTonight = () => tomorrow(23, 59, 30);
+const justAfterMidnight = () => tomorrow(0, 0, 30, 1);
+
 test.beforeEach(async ({ page }) => {
   await openApp(page);
   await waitForApp(page);
@@ -104,14 +116,14 @@ test.describe('correcting a mistaken tap', () => {
   });
 
   test("yesterday's quests can't be corrected after midnight: the day starts fresh", async ({ page }) => {
-    await page.clock.setFixedTime(new Date(2026, 9, 21, 23, 59, 30));
+    await page.clock.setFixedTime(lateTonight());
     await openApp(page);
     await waitForApp(page);
     await tapTimes(page, 'Morning Routine', 1);
     await expect(options(page, 'Morning Routine')).toBeVisible();
     const energy = (await saved(page)).energy;
 
-    await page.clock.setFixedTime(new Date(2026, 9, 22, 0, 0, 30));
+    await page.clock.setFixedTime(justAfterMidnight());
     await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // the app's day check
     await expect.poll(async () => (await questIn(page, 'q1')).completed).toBe(false);
     await expect(quest(page, 'Morning Routine')).not.toContainText('(done)');
@@ -120,13 +132,13 @@ test.describe('correcting a mistaken tap', () => {
   });
 
   test('a correction dialog left open past midnight changes nothing', async ({ page }) => {
-    await page.clock.setFixedTime(new Date(2026, 9, 21, 23, 59, 30));
+    await page.clock.setFixedTime(lateTonight());
     await openApp(page);
     await waitForApp(page);
     await tapTimes(page, 'Hydration Goal', 2);
     await options(page, 'Hydration Goal').click();
     await dialog(page).getByRole('button', { name: /Undo one step/ }).click();
-    await page.clock.setFixedTime(new Date(2026, 9, 22, 0, 0, 30));
+    await page.clock.setFixedTime(justAfterMidnight());
     await dialog(page).getByRole('button', { name: 'Undo one step' }).click();
     await expect(page.getByRole('status')).toContainText('nothing to correct');
     expect((await questIn(page, 'q5')).progress).toBe(0);
@@ -414,7 +426,7 @@ test.describe('check-in notes', () => {
   });
 
   test("yesterday's check-in form doesn't carry into a new day", async ({ page }) => {
-    await page.clock.setFixedTime(new Date(2026, 9, 21, 23, 59, 30));
+    await page.clock.setFixedTime(lateTonight());
     await openApp(page);
     await waitForApp(page);
     await goToTab(page, 'Check-in');
@@ -424,7 +436,7 @@ test.describe('check-in notes', () => {
     await page.getByRole('button', { name: "Update today's check-in" }).click();
     await expect(page.getByLabel('Note (optional)')).toHaveValue('late night');
 
-    await page.clock.setFixedTime(new Date(2026, 9, 22, 0, 0, 30));
+    await page.clock.setFixedTime(justAfterMidnight());
     await page.evaluate(() => window.dispatchEvent(new Event('focus'))); // the app's day check
     await expect(page.getByLabel('Note (optional)')).toHaveValue('');
     await expect(page.getByRole('button', { name: '3', exact: true }).nth(0)).toHaveAttribute('aria-pressed', 'true');

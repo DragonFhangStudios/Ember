@@ -1,4 +1,8 @@
-import { Monitor, Moon, Palette, RotateCcw, Sun, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Download, HardDrive, History, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, Upload, X } from 'lucide-react';
+import { StorageProtection, requestStorageProtection, storageProtection } from '../lib/persistence';
+import { versionLabel } from '../lib/buildInfo';
+import { BACKUPS_KEPT } from '../lib/store';
 import { cn } from '../lib/utils';
 import { ThemePreference } from '../lib/theme';
 import { Dialog } from './Dialog';
@@ -29,11 +33,51 @@ interface SettingsSheetProps {
   onThemePreference: (preference: ThemePreference) => void;
   /** Opens the reset confirmation; nothing is reset from here directly. */
   onResetRequest: () => void;
+  /** False when there's no save to export or import into (preview mode). */
+  saveAvailable: boolean;
+  /** How many replaced saves are kept on this device. */
+  backupCount: number;
+  onExport: () => void;
+  /** A file the player picked; it's checked and confirmed before anything changes. */
+  onImportFile: (file: File) => void;
+  onShowBackups: () => void;
+  /** Opens what Ember stores and sends, and copyable diagnostics. */
+  onShowPrivacy: () => void;
 }
 
 /** A bottom sheet for appearance and data settings, so the header fits a phone. */
-export function SettingsSheet({ isOpen, themeColor, theme, onClose, onThemeChange, onThemePreference, onResetRequest }: SettingsSheetProps) {
+export function SettingsSheet({
+  isOpen,
+  themeColor,
+  theme,
+  onClose,
+  onThemeChange,
+  onThemePreference,
+  onResetRequest,
+  saveAvailable,
+  backupCount,
+  onExport,
+  onImportFile,
+  onShowBackups,
+  onShowPrivacy,
+}: SettingsSheetProps) {
   const background = (themeColor ?? DEFAULT_BACKGROUND).toLowerCase();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [protection, setProtection] = useState<StorageProtection | null>(null);
+  const [asked, setAsked] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    let current = true;
+    storageProtection().then(p => current && setProtection(p));
+    return () => {
+      current = false;
+    };
+  }, [isOpen]);
+  const askToKeep = async () => {
+    setProtection(await requestStorageProtection());
+    setAsked(true);
+  };
+  const action = 'w-full min-h-11 flex items-center gap-3 rounded-2xl px-4 py-2 bg-surface-muted text-fg font-bold text-left disabled:opacity-60';
 
   return (
     <Dialog
@@ -105,6 +149,77 @@ export function SettingsSheet({ isOpen, themeColor, theme, onClose, onThemeChang
           ))}
         </div>
       </fieldset>
+
+      <section className="mb-6" aria-labelledby="your-save-title">
+        <h3 id="your-save-title" className="text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">Your save</h3>
+        <p id="your-save-description" className="text-sm text-fg-muted mb-3">
+          Your save lives only in this browser on this device. When a save is replaced, Ember keeps up to {BACKUPS_KEPT} earlier
+          ones here too, but clearing the browser's site data deletes them all. Export a copy to keep one separately or to move
+          it to another device by hand. The file includes your check-ins and notes, so keep it somewhere private.
+        </p>
+        {!saveAvailable && (
+          <p className="text-sm text-fg-muted mb-3">Saving isn't available right now (preview mode), so there's nothing to export or import into.</p>
+        )}
+        <div className="flex flex-col gap-2">
+          <button onClick={onExport} disabled={!saveAvailable} className={action}>
+            <Download aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+            Export save
+          </button>
+          <button onClick={() => fileInputRef.current?.click()} disabled={!saveAvailable} className={action}>
+            <Upload aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+            Import save…
+          </button>
+          {backupCount > 0 && (
+            <button onClick={onShowBackups} disabled={!saveAvailable} className={action}>
+              <History aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+              Restore a backup… <span className="ml-auto text-sm font-medium text-fg-muted">{backupCount}</span>
+            </button>
+          )}
+        </div>
+        {/* The real file picker, opened by "Import save…". */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          aria-label="Choose a save file to import"
+          hidden
+          onChange={e => {
+            const file = e.target.files?.[0];
+            e.target.value = ''; // the same file can be picked again
+            if (file) onImportFile(file);
+          }}
+        />
+      </section>
+
+      <section className="mb-6" aria-labelledby="this-device-title">
+        <h3 id="this-device-title" className="text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">This device</h3>
+        <div className="flex gap-3 text-sm text-fg-muted mb-3">
+          <HardDrive aria-hidden="true" className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <p id="storage-status" data-storage={protection ?? 'checking'}>
+            {protection === null && 'Checking how this browser stores Ember…'}
+            {protection === 'kept' &&
+              "This browser has agreed to keep Ember's data unless you clear it yourself. Exporting a copy now and then is still a good idea."}
+            {protection === 'may-clear' &&
+              (asked
+                ? "The browser didn't agree this time. It decides for itself (often after Ember is added to your home screen or used for a while). Exporting a copy keeps your save safe."
+                : "This browser may clear Ember's data if the device runs low on space, or (on iPhone) after a while without opening Ember. Adding Ember to your home screen and exporting a copy help.")}
+            {protection === 'unsupported' && "This browser can't be asked to keep Ember's data. Exporting a copy keeps your save safe."}
+          </p>
+        </div>
+        {protection === 'may-clear' && !asked && (
+          <button onClick={askToKeep} className={action} aria-describedby="storage-status">
+            <HardDrive aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+            Ask the browser to keep Ember's data
+          </button>
+        )}
+        <button onClick={onShowPrivacy} className={`${action} mt-2`}>
+          <ShieldCheck aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+          Privacy and feedback…
+        </button>
+        <p className="text-xs text-fg-muted mt-3" data-version>
+          Ember version {versionLabel()}
+        </p>
+      </section>
 
       <section className="pt-4 border-t border-line">
         <button

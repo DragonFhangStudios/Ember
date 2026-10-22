@@ -5,7 +5,7 @@ import { bondTotal } from './evolution';
 import { FOCUS_DURATION_MS } from './focusTimer';
 import { pauseFocus, resetFocus, settle, startFocus } from './focusSession';
 import { DAILY_LIMITS, REWARDS, advanceQuest, correctQuest, createInitialState, deleteCustomQuest, editCustomQuest, migrateState } from './progression';
-import { EmberStore, LegacySaveUnreadableError, StoreUnavailableError, openStore } from './store';
+import { BACKUPS_KEPT, BackupMissingError, EmberStore, LegacySaveUnreadableError, SaveChangedError, StoreUnavailableError, openStore } from './store';
 
 // fake-indexeddb implements IndexedDB's transaction scheduling: readwrite
 // transactions on the same store are serialized across connections, like
@@ -339,6 +339,144 @@ describe('quest corrections, edits and caps across tabs (#19)', () => {
     const end = new Date(NOW.getTime() + FOCUS_DURATION_MS);
     await Promise.all([act(a.store, end), act(b.store, end), act(c.store, end), act(b.store, end)]);
     expect((await c.store.read()).state.focusSessionsCompleted).toBe(1);
+    [a, b, c].forEach(t => t.store.close());
+  });
+});
+
+describe('replacing the save (import, restore, reset; #32)', () => {
+  const withScales = (n: number): UserState => ({ ...createInitialState(NOW), goldenScales: n });
+
+  it('replaces the save and keeps the old one as a backup, in one commit', async () => {
+    const h = harness();
+    const { store } = await h.open();
+    await store.update(s => ({ ...s, goldenScales: 42 }));
+    const before = await store.read();
+    const result = await store.replace(withScales(7), { reason: 'import', expectedRev: before.rev, now: NOW });
+    expect(result).toMatchObject({ rev: before.rev + 1, changed: true });
+    expect(result.state.goldenScales).toBe(7);
+    const backups = await store.listBackups();
+    expect(backups).toHaveLength(1);
+    expect(backups[0]).toMatchObject({ reason: 'import', rev: before.rev, savedAt: NOW.toISOString() });
+    expect(backups[0].state.goldenScales).toBe(42);
+    store.close();
+  });
+
+  it('refuses a replacement reviewed against an older save (another tab changed it), changing nothing', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    const reviewed = (await a.store.read()).rev;
+    await b.store.update(s => ({ ...s, goldenScales: 99 })); // progress in another tab
+    await expect(a.store.replace(withScales(1), { reason: 'import', expectedRev: reviewed })).rejects.toBeInstanceOf(SaveChangedError);
+    expect((await a.store.read()).state.goldenScales).toBe(99);
+    expect(await a.store.listBackups()).toEqual([]);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('a replacement that fails mid-transaction leaves the original save and backups untouched', async () => {
+    const h = harness();
+    const { store } = await h.open();
+    await store.update(s => ({ ...s, goldenScales: 42 }));
+    const before = await store.read();
+    // A value IndexedDB can't store (a function) fails the write inside the transaction.
+    const unstorable = { ...withScales(1), broken: () => 1 } as unknown as UserState;
+    await expect(store.replace(unstorable, { reason: 'import', expectedRev: before.rev })).rejects.toBeTruthy();
+    const after = await store.read();
+    expect([after.rev, after.state.goldenScales]).toEqual([before.rev, 42]);
+    expect(await store.listBackups()).toEqual([]);
+    store.close();
+  });
+
+  it(`keeps the ${BACKUPS_KEPT} most recent backups, newest first`, async () => {
+    const h = harness();
+    const { store } = await h.open();
+    for (let i = 1; i <= BACKUPS_KEPT + 2; i++) await store.replace(withScales(i), { reason: 'import', now: new Date(NOW.getTime() + i) });
+    const backups = await store.listBackups();
+    expect(backups.map(b => b.state.goldenScales)).toEqual([BACKUPS_KEPT + 1, BACKUPS_KEPT, BACKUPS_KEPT - 1]);
+    store.close();
+  });
+
+  it('restoring a backup brings it back and keeps the replaced save as a backup in turn', async () => {
+    const h = harness();
+    const { store } = await h.open();
+    await store.update(s => ({ ...s, goldenScales: 42 }));
+    await store.replace(withScales(7), { reason: 'import' });
+    const [original] = await store.listBackups();
+    const restored = await store.restoreBackup(original.id, { expectedRev: (await store.read()).rev });
+    expect(restored.state.goldenScales).toBe(42);
+    const backups = await store.listBackups();
+    expect(backups.map(b => [b.reason, b.state.goldenScales])).toEqual([['restore', 7]]);
+    // …and that can be undone too.
+    expect((await store.restoreBackup(backups[0].id)).state.goldenScales).toBe(7);
+    store.close();
+  });
+
+  it('refuses a restore reviewed against an older save (another tab changed it), changing nothing', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    await a.store.replace(withScales(7), { reason: 'import' });
+    const [backup] = await a.store.listBackups();
+    const reviewed = (await a.store.read()).rev;
+    await b.store.update(s => ({ ...s, goldenScales: 99 })); // progress in another tab
+    await expect(a.store.restoreBackup(backup.id, { expectedRev: reviewed })).rejects.toBeInstanceOf(SaveChangedError);
+    expect((await a.store.read()).state.goldenScales).toBe(99);
+    expect((await a.store.listBackups()).map(x => x.id)).toEqual([backup.id]);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('a backup restored in one tab is gone for another tab, which changes nothing', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    await a.store.replace(withScales(7), { reason: 'import' });
+    const [backup] = await b.store.listBackups();
+    await a.store.restoreBackup(backup.id);
+    const rev = (await b.store.read()).rev;
+    await expect(b.store.restoreBackup(backup.id)).rejects.toBeInstanceOf(BackupMissingError);
+    expect((await b.store.read()).rev).toBe(rev);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('other tabs are told about a replacement, and their next actions apply to the new save', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    const seen = vi.fn();
+    b.store.subscribe(seen);
+    await a.store.replace(withScales(7), { reason: 'import' });
+    await tick();
+    expect(seen).toHaveBeenCalled();
+    expect(seen.mock.calls.at(-1)![0].state.goldenScales).toBe(7);
+    await b.store.update(s => ({ ...s, goldenScales: s.goldenScales + 1 }));
+    expect((await a.store.read()).state.goldenScales).toBe(8);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('two tabs importing at once: exactly one wins, the other changes nothing', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    const reviewed = (await a.store.read()).rev;
+    const results = await Promise.allSettled([
+      a.store.replace(withScales(1), { reason: 'import', expectedRev: reviewed }),
+      b.store.replace(withScales(2), { reason: 'import', expectedRev: reviewed }),
+    ]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(r => r.status === 'rejected' && r.reason instanceof SaveChangedError)).toHaveLength(1);
+    expect(await a.store.listBackups()).toHaveLength(1);
+    a.store.close();
+    b.store.close();
+  });
+
+  it('a running focus session in an imported save is rewarded exactly once across tabs', async () => {
+    const h = harness();
+    const [a, b, c] = await Promise.all([h.open(), h.open(), h.open()]);
+    await a.store.replace(startFocus(createInitialState(NOW), 'imported', NOW), { reason: 'import' });
+    const end = new Date(NOW.getTime() + FOCUS_DURATION_MS);
+    await Promise.all([act(a.store, end), act(b.store, end), act(c.store, end)]);
+    const saved = (await c.store.read()).state;
+    expect(saved.focusSessionsCompleted).toBe(1);
+    expect(bondTotal(saved.bond)).toBe(REWARDS.focus.growth);
     [a, b, c].forEach(t => t.store.close());
   });
 });

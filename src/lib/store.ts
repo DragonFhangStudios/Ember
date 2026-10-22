@@ -15,7 +15,23 @@ export const DB_NAME = 'ember';
 export const DB_VERSION = 1;
 const STORE = 'saves';
 const KEY = 'player';
+/** Earlier saves kept when a save is replaced (import, restore, reset), newest first. */
+const BACKUPS_KEY = 'backups';
 const CHANNEL = 'ember-save';
+
+/** How many replaced saves are kept for restoring. */
+export const BACKUPS_KEPT = 3;
+
+export type BackupReason = 'import' | 'restore' | 'reset';
+
+/** A save that was replaced, kept on this device so the player can restore it. */
+export interface SaveBackup<T> {
+  id: string;
+  savedAt: string; // ISO time it was replaced
+  reason: BackupReason; // what replaced it
+  rev: number; // its revision when it was replaced
+  state: T;
+}
 
 export interface SaveRecord<T> {
   state: T;
@@ -39,9 +55,36 @@ export interface EmberStore<T> {
    * and synchronous; returning the same object means "no change" (no write).
    */
   update(fn: (current: T) => T): Promise<StoreResult<T>>;
+  /**
+   * Replaces the whole save with `next`, keeping the current save as a backup,
+   * in one transaction: either both happen or neither does. With
+   * `expectedRev`, refuses (SaveChangedError, nothing written) if the save has
+   * changed since the player reviewed it, e.g. in another tab.
+   */
+  replace(next: T, options: { reason: BackupReason; expectedRev?: number; now?: Date }): Promise<StoreResult<T>>;
+  /** The kept backups, newest first. */
+  listBackups(): Promise<SaveBackup<T>[]>;
+  /** Restores a backup, keeping the current save as a backup in its place (same rules as replace). */
+  restoreBackup(id: string, options?: { expectedRev?: number; now?: Date }): Promise<StoreResult<T>>;
   /** Called with the new save whenever another tab commits a change. */
   subscribe(listener: (result: StoreResult<T>) => void): () => void;
   close(): void;
+}
+
+/** The save changed after the player reviewed a replacement, so nothing was replaced. */
+export class SaveChangedError extends Error {
+  constructor() {
+    super('The save changed since it was reviewed, so nothing was replaced.');
+    this.name = 'SaveChangedError';
+  }
+}
+
+/** The backup to restore no longer exists (another tab may have used it). */
+export class BackupMissingError extends Error {
+  constructor() {
+    super('That backup is no longer available.');
+    this.name = 'BackupMissingError';
+  }
 }
 
 export class StoreUnavailableError extends Error {
@@ -172,6 +215,56 @@ export async function openStore<T>(options: OpenStoreOptions<T>): Promise<{ stor
     });
   }
 
+  /**
+   * One readwrite transaction over the save and its backups. `apply` runs
+   * synchronously once both are read; whatever it returns is written, and a
+   * throw aborts the transaction so nothing changes.
+   */
+  function transactWithBackups(
+    apply: (record: SaveRecord<T> | undefined, backups: SaveBackup<T>[]) => { record: SaveRecord<T>; backups: SaveBackup<T>[] },
+  ): Promise<SaveRecord<T>> {
+    return new Promise((resolve, reject) => {
+      let tx: IDBTransaction;
+      try {
+        tx = db.transaction(STORE, 'readwrite');
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      const objectStore = tx.objectStore(STORE);
+      let result: SaveRecord<T> | undefined;
+      let failure: unknown;
+      const getRecord = objectStore.get(KEY);
+      getRecord.onsuccess = () => {
+        const getBackups = objectStore.get(BACKUPS_KEY);
+        getBackups.onsuccess = () => {
+          try {
+            const stored = Array.isArray(getBackups.result) ? (getBackups.result as SaveBackup<T>[]) : [];
+            const next = apply(getRecord.result as SaveRecord<T> | undefined, stored);
+            objectStore.put(next.backups, BACKUPS_KEY);
+            objectStore.put(next.record, KEY);
+            result = next.record;
+          } catch (error) {
+            failure = error;
+            tx.abort();
+          }
+        };
+      };
+      tx.oncomplete = () => (result ? resolve(result) : reject(new Error('Save record missing.')));
+      tx.onabort = () => reject(failure ?? tx.error ?? new Error('Save transaction aborted.'));
+      tx.onerror = () => reject(failure ?? tx.error ?? new Error('Save transaction failed.'));
+    });
+  }
+
+  /** The current save as a backup entry. */
+  const backupOf = (record: SaveRecord<T>, reason: BackupReason, now: Date): SaveBackup<T> => ({
+    id: `${now.getTime()}-${record.rev}`,
+    savedAt: now.toISOString(),
+    reason,
+    rev: record.rev,
+    state: record.state,
+  });
+
   const toResult = (record: SaveRecord<T>, changed: boolean): StoreResult<T> => ({
     state: options.migrate(record.state),
     rev: record.rev,
@@ -221,6 +314,47 @@ export async function openStore<T>(options: OpenStoreOptions<T>): Promise<{ stor
       // Committed: only now tell other tabs.
       if (changed) notifyOtherTabs(record.rev);
       return { state: changed ? record.state : options.migrate(record.state), rev: record.rev, changed };
+    },
+    async replace(next, { reason, expectedRev, now = new Date() }) {
+      const record = await transactWithBackups((stored, backups) => {
+        if (!stored) throw new Error('Save record missing.');
+        if (expectedRev !== undefined && stored.rev !== expectedRev) throw new SaveChangedError();
+        return {
+          record: { state: next, rev: stored.rev + 1 },
+          backups: [backupOf(stored, reason, now), ...backups].slice(0, BACKUPS_KEPT),
+        };
+      });
+      notifyOtherTabs(record.rev);
+      return toResult(record, true);
+    },
+    async listBackups() {
+      const backups = await new Promise<SaveBackup<T>[]>((resolve, reject) => {
+        let tx: IDBTransaction;
+        try {
+          tx = db.transaction(STORE, 'readonly');
+        } catch (error) {
+          reject(error);
+          return;
+        }
+        const get = tx.objectStore(STORE).get(BACKUPS_KEY);
+        get.onsuccess = () => resolve(Array.isArray(get.result) ? (get.result as SaveBackup<T>[]) : []);
+        get.onerror = () => reject(get.error);
+      });
+      return backups.map(b => ({ ...b, state: options.migrate(b.state) }));
+    },
+    async restoreBackup(id, { expectedRev, now = new Date() } = {}) {
+      const record = await transactWithBackups((stored, backups) => {
+        if (!stored) throw new Error('Save record missing.');
+        if (expectedRev !== undefined && stored.rev !== expectedRev) throw new SaveChangedError();
+        const chosen = backups.find(b => b.id === id);
+        if (!chosen) throw new BackupMissingError();
+        return {
+          record: { state: chosen.state, rev: stored.rev + 1 },
+          backups: [backupOf(stored, 'restore', now), ...backups.filter(b => b.id !== id)].slice(0, BACKUPS_KEPT),
+        };
+      });
+      notifyOtherTabs(record.rev);
+      return toResult(record, true);
     },
     subscribe(listener) {
       if (!channel) return () => {};

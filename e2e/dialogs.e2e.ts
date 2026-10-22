@@ -61,7 +61,7 @@ test('Reset opens on top of Settings, and Escape steps back one dialog at a time
   await resetButton.click();
 
   const reset = page.getByRole('dialog', { name: 'Reset Progress?' });
-  await expect(reset).toHaveAccessibleDescription(/cannot be undone/);
+  await expect(reset).toHaveAccessibleDescription(/kept as a backup/);
   await expect(reset.getByRole('button', { name: 'Cancel' }), 'focus starts on the safe choice').toBeFocused();
   await expectFocusContained(page, reset);
   // Settings underneath is inert while Reset is open.

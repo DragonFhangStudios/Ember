@@ -1,4 +1,16 @@
 import { DragonStage, Quest, CosmeticItem, Badge } from './types';
+// Temporary local placeholders (no third-party image requests; see
+// src/assets/placeholders/README.md). Original art replaces them via #20.
+import stageEgg from './assets/placeholders/stage-egg.svg';
+import stageHatchling from './assets/placeholders/stage-hatchling.svg';
+import stageFledgling from './assets/placeholders/stage-fledgling.svg';
+import stageDrake from './assets/placeholders/stage-drake.svg';
+import stageAncient from './assets/placeholders/stage-ancient.svg';
+import hatWizard from './assets/placeholders/cosmetic-hat-wizard.svg';
+import hatCrown from './assets/placeholders/cosmetic-hat-crown.svg';
+import scarfRed from './assets/placeholders/cosmetic-scarf-red.svg';
+import nestMoss from './assets/placeholders/cosmetic-nest-moss.svg';
+import nestCloud from './assets/placeholders/cosmetic-nest-cloud.svg';
 
 export const INITIAL_QUESTS: Quest[] = [
   {
@@ -59,11 +71,11 @@ export const INITIAL_QUESTS: Quest[] = [
 ];
 
 export const COSMETICS: CosmeticItem[] = [
-  { id: 'hat_wizard', name: 'Tiny Wizard Hat', price: 50, category: 'hat', image: 'https://picsum.photos/seed/wizard-hat/100/100' },
-  { id: 'hat_crown', name: 'Golden Crown', price: 150, category: 'hat', image: 'https://picsum.photos/seed/crown/100/100' },
-  { id: 'scarf_red', name: 'Red Cozy Scarf', price: 30, category: 'scarf', image: 'https://picsum.photos/seed/red-scarf/100/100' },
-  { id: 'nest_moss', name: 'Soft Moss Nest', price: 100, category: 'nest', image: 'https://picsum.photos/seed/moss-nest/100/100' },
-  { id: 'nest_cloud', name: 'Cloud Bed', price: 200, category: 'nest', image: 'https://picsum.photos/seed/cloud-bed/100/100' },
+  { id: 'hat_wizard', name: 'Tiny Wizard Hat', price: 50, category: 'hat', image: hatWizard },
+  { id: 'hat_crown', name: 'Golden Crown', price: 150, category: 'hat', image: hatCrown },
+  { id: 'scarf_red', name: 'Red Cozy Scarf', price: 30, category: 'scarf', image: scarfRed },
+  { id: 'nest_moss', name: 'Soft Moss Nest', price: 100, category: 'nest', image: nestMoss },
+  { id: 'nest_cloud', name: 'Cloud Bed', price: 200, category: 'nest', image: nestCloud },
 ];
 
 export const BADGES: Badge[] = [
@@ -80,22 +92,22 @@ export const BADGES: Badge[] = [
 export const DRAGON_STAGES_DATA = {
   [DragonStage.EGG]: {
     description: "A mysterious egg pulsing with a faint, warm light. Take care of yourself for a couple of days, and it will hatch.",
-    image: "https://picsum.photos/seed/dragon-egg/400/400"
+    image: stageEgg
   },
   [DragonStage.HATCHLING]: {
     description: "Tiny, big eyes, wobbles when it walks. Fits on a single UI card. Ember glows when you stay hydrated!",
-    image: "https://picsum.photos/seed/dragon-hatchling/400/400"
+    image: stageHatchling
   },
   [DragonStage.FLEDGLING]: {
     description: "Grows small nubs for horns and wings. Ember is starting to ask questions about the world.",
-    image: "https://picsum.photos/seed/dragon-teen/400/400"
+    image: stageFledgling
   },
   [DragonStage.DRAKE]: {
     description: "Lean and athletic. Wings are functional. Ember can now go on scavenging runs while you focus.",
-    image: "https://picsum.photos/seed/dragon-adult/400/400"
+    image: stageDrake
   },
   [DragonStage.ANCIENT]: {
     description: "Majestic, glowing scales and ornate horns. Ember is now a permanent guardian of your health legacy.",
-    image: "https://picsum.photos/seed/dragon-elder/400/400"
+    image: stageAncient
   }
 };
