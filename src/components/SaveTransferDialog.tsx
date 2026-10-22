@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle, Download, History, RotateCcw, Upload, X } from 'lucide-react';
 import { UserState } from '../types';
+import { COSMETICS } from '../constants';
 import { SaveSummary, progressLost, summarizeSave } from '../lib/saveFile';
-import { BackupReason, SaveBackup } from '../lib/store';
+import { BACKUPS_KEPT, BackupReason, SaveBackup } from '../lib/store';
 import { Dialog } from './Dialog';
 
 /** What the save dialog is showing. `expectedRev` is the save the player is reviewing against. */
@@ -79,19 +80,43 @@ function Comparison({ current, incoming, incomingLabel }: { current: UserState; 
   );
 }
 
+const cosmeticName = (id: string) => COSMETICS.find(item => item.id === id)?.name ?? id;
+/** Losses shown before "Show more" (the most personal come first). */
+const LOSSES_SHOWN = 4;
+
+/** What the incoming save doesn't have, gently and briefly; the rest is one tap away. */
 function LossWarning({ current, incoming, replacing }: { current: UserState; incoming: UserState; replacing: string }) {
-  const lost = progressLost(current, incoming);
+  const lost = progressLost(current, incoming, cosmeticName);
   if (!lost.length) return null;
+  const shown = lost.length > LOSSES_SHOWN ? lost.slice(0, LOSSES_SHOWN - 1) : lost;
+  const more = lost.slice(shown.length);
+  const list = (items: typeof lost) => (
+    <ul className="list-disc pl-5 my-1 space-y-0.5">
+      {items.map(loss => (
+        <li key={loss.kind} data-loss={loss.kind}>{loss.text}</li>
+      ))}
+    </ul>
+  );
   return (
     <div role="note" className="mb-4 p-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 text-sm text-fg flex gap-2">
       <AlertTriangle aria-hidden="true" className="w-5 h-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
-      <p>
-        {replacing} has less progress than the save on this device: {lost.join(', ')}. Your current save will be kept as a
-        backup, so you can restore it from Settings.
-      </p>
+      <div className="min-w-0">
+        <p>{replacing} doesn't have everything that's on this device:</p>
+        {list(shown)}
+        {more.length > 0 && (
+          <details>
+            <summary className="cursor-pointer font-bold min-h-11 flex items-center">Show {more.length} more</summary>
+            {list(more)}
+          </details>
+        )}
+        <p className="mt-1">Your current save will be kept as a backup in this browser, so you can restore it from Settings.</p>
+      </div>
     </div>
   );
 }
+
+/** What the automatic backups can't protect against, near every replacement. */
+const BACKUP_LIMITS = `Ember keeps up to ${BACKUPS_KEPT} replaced saves in this browser. Clearing the browser's site data deletes them along with your save; an exported file is a separate copy.`;
 
 /**
  * Import, restore, and problems with save files. Every replacement shows the
@@ -160,6 +185,7 @@ function Content({ state, busy, onConfirmImport, onDownloadCurrent, onChooseBack
           The file's save would replace the one on this device. It doesn't merge or sync. Your current save is kept as a backup
           you can restore from Settings.
         </p>
+        <p className="text-xs text-fg-muted mb-4" data-backup-limits>{BACKUP_LIMITS}</p>
         <Comparison current={state.current} incoming={state.incoming} incomingLabel={`From the file (${day(state.exportedAt)})`} />
         <LossWarning current={state.current} incoming={state.incoming} replacing="The file" />
         <div className="flex flex-col gap-3">
@@ -194,6 +220,7 @@ function Content({ state, busy, onConfirmImport, onDownloadCurrent, onChooseBack
           Saves replaced on this device are kept here (the {state.backups.length === 1 ? 'last one' : `last ${state.backups.length}`}).
           Restoring one keeps your current save as a backup too.
         </p>
+        <p className="text-xs text-fg-muted mb-4" data-backup-limits>{BACKUP_LIMITS}</p>
         <ul className="flex flex-col gap-3 mb-4">
           {state.backups.map(backup => {
             const s = summarizeSave(backup.state);

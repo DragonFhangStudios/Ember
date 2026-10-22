@@ -1,4 +1,4 @@
-import { DragonStage, UserState } from '../types';
+import { DragonStage, SymptomLog, UserState } from '../types';
 import { bondTotal, lifetimeActiveDays } from './evolution';
 import { checkLegacySave } from './legacySave';
 import { SAVE_VERSION, migrateState } from './progression';
@@ -163,20 +163,83 @@ export function summarizeSave(state: UserState): SaveSummary {
   };
 }
 
+/** Something on this device that a replacement would set back or leave out. */
+export type SaveLossKind =
+  | 'check-ins'
+  | 'check-ins-changed'
+  | 'stage'
+  | 'streak'
+  | 'best-streak'
+  | 'bond'
+  | 'active-days'
+  | 'milestones'
+  | 'cosmetics'
+  | 'golden-scales'
+  | 'energy'
+  | 'focus-sessions';
+
+export interface SaveLoss {
+  kind: SaveLossKind;
+  /** What's missing, as a short phrase following "It doesn't have…" (e.g. "your 6-day streak (it has 2)"). */
+  text: string;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const names = (list: string[]) => (list.length <= 2 ? list.join(' and ') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`);
+
+/** Check-ins on this device that the incoming save leaves out, or has in a different version (matched by when they were logged). */
+function checkInLosses(current: UserState, incoming: UserState) {
+  const byDate = new Map<string, SymptomLog[]>();
+  for (const log of incoming.symptomLogs) byDate.set(log.date, [...(byDate.get(log.date) ?? []), log]);
+  const missing: SymptomLog[] = [];
+  let changed = 0;
+  let notesChanged = 0;
+  for (const log of current.symptomLogs) {
+    const match = byDate.get(log.date)?.shift();
+    if (!match) {
+      missing.push(log);
+      continue;
+    }
+    const noteDiffers = (match.notes ?? '').trim() !== (log.notes ?? '').trim();
+    if (noteDiffers || match.energy !== log.energy || match.mood !== log.mood) changed++;
+    if (noteDiffers) notesChanged++;
+  }
+  return { missing, changed, notesChanged };
+}
+
+const hasNote = (log: SymptomLog) => !!log.notes?.trim();
+
 /**
- * Where the incoming save has less than the current one: replacing would set
- * these back (they're in the backup, but the player should know first).
+ * What `incoming` doesn't have that `current` does: what replacing would set
+ * back or leave out, most personal first (check-ins and their notes can't be
+ * earned again). Empty when nothing would be lost. Comparison only: the
+ * replacement itself is all or nothing, and the replaced save is kept as a backup.
  */
-export function progressLost(current: UserState, incoming: UserState): string[] {
+export function progressLost(current: UserState, incoming: UserState, cosmeticName: (id: string) => string = id => id): SaveLoss[] {
   const a = summarizeSave(current);
   const b = summarizeSave(incoming);
-  const lost: string[] = [];
-  if (STAGE_ORDER.indexOf(b.stage) < STAGE_ORDER.indexOf(a.stage)) lost.push(`an earlier stage (${b.stage} instead of ${a.stage})`);
-  if (b.activeDays < a.activeDays) lost.push(`fewer active days (${b.activeDays} instead of ${a.activeDays})`);
-  if (b.bond < a.bond) lost.push(`less Bond (${b.bond} instead of ${a.bond})`);
-  if (b.badges < a.badges) lost.push(`fewer milestones (${b.badges} instead of ${a.badges})`);
-  if (b.goldenScales < a.goldenScales) lost.push(`fewer Golden Scales (${b.goldenScales} instead of ${a.goldenScales})`);
-  if (b.checkIns < a.checkIns) lost.push(`fewer check-ins (${b.checkIns} instead of ${a.checkIns})`);
-  if (b.focusSessions < a.focusSessions) lost.push(`fewer focus sessions (${b.focusSessions} instead of ${a.focusSessions})`);
+  const lost: SaveLoss[] = [];
+  const add = (kind: SaveLossKind, text: string) => lost.push({ kind, text });
+
+  const { missing, changed, notesChanged } = checkInLosses(current, incoming);
+  if (missing.length) {
+    const noted = missing.filter(hasNote).length;
+    add('check-ins', `${plural(missing.length, 'check-in')}${noted ? ` (${noted === 1 ? '1 with a note' : `${noted} with notes`})` : ''}`);
+  }
+  if (changed) add('check-ins-changed', `this device's ${notesChanged ? 'notes or ratings' : 'ratings'} for ${plural(changed, 'check-in')}`);
+  if (STAGE_ORDER.indexOf(b.stage) < STAGE_ORDER.indexOf(a.stage)) add('stage', `the ${a.stage} stage (it has ${b.stage})`);
+  if (b.currentStreak < a.currentStreak) add('streak', `your ${a.currentStreak}-day streak (it has ${b.currentStreak})`);
+  if (b.bestStreak < a.bestStreak) add('best-streak', `your best streak of ${plural(a.bestStreak, 'day')} (it has ${b.bestStreak})`);
+  if (b.bond < a.bond) add('bond', `some Bond (${b.bond} instead of ${a.bond})`);
+  if (b.activeDays < a.activeDays) add('active-days', `some active days (${b.activeDays} instead of ${a.activeDays})`);
+  const earned = new Set(incoming.badges.filter(x => x.unlockedAt).map(x => x.id));
+  const badgesGone = current.badges.filter(x => x.unlockedAt && !earned.has(x.id)).map(x => x.name);
+  if (badgesGone.length) add('milestones', `the ${names(badgesGone)} ${badgesGone.length === 1 ? 'milestone' : 'milestones'}`);
+  const owned = new Set(incoming.inventory);
+  const cosmeticsGone = [...new Set(current.inventory)].filter(id => !owned.has(id)).map(cosmeticName);
+  if (cosmeticsGone.length) add('cosmetics', `your ${names(cosmeticsGone)}`);
+  if (b.goldenScales < a.goldenScales) add('golden-scales', `some Golden Scales (${b.goldenScales} instead of ${a.goldenScales})`);
+  if (incoming.energy < current.energy) add('energy', `some energy (${incoming.energy} instead of ${current.energy})`);
+  if (b.focusSessions < a.focusSessions) add('focus-sessions', `some focus sessions (${b.focusSessions} instead of ${a.focusSessions})`);
   return lost;
 }

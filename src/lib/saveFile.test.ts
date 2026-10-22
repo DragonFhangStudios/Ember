@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DragonStage, UserState } from '../types';
+import { DragonStage, SymptomLog, UserState } from '../types';
 import { bondTotal } from './evolution';
 import { settle, startFocus } from './focusSession';
 import { FOCUS_DURATION_MS } from './focusTimer';
@@ -196,12 +196,98 @@ describe('comparing saves before replacing', () => {
     expect(summarizeSave(s)).toMatchObject({ dragonName: 'Ember', stage: DragonStage.DRAKE, bond: Math.floor(bondTotal(s.bond)), activeDays: 43, currentStreak: 6, bestStreak: 12, badges: 1, checkIns: 1, focusSessions: 9, goldenScales: 77 });
   });
 
-  it('lists everything a replacement would set back', () => {
+  const kinds = (current: UserState, incoming: UserState) => progressLost(current, incoming).map(l => l.kind);
+  const textOf = (current: UserState, incoming: UserState, kind: string) => progressLost(current, incoming).find(l => l.kind === kind)?.text;
+  const withLogs = (s: UserState, symptomLogs: SymptomLog[]) => ({ ...s, symptomLogs });
+  const log = (date: string, notes?: string, energy = 3, mood = 3): SymptomLog => ({ date, energy, mood, ...(notes ? { notes } : {}) });
+
+  it('lists everything a replacement would set back, most personal first', () => {
     const current = seasoned();
     const fresh = createInitialState(NOW);
-    const lost = progressLost(current, fresh);
-    expect(lost.join(' | ')).toMatch(/earlier stage.*active days.*less Bond.*fewer milestones.*Golden Scales.*check-ins.*focus sessions/);
+    const names: Record<string, string> = { hat_wizard: 'Tiny Wizard Hat', nest_moss: 'Soft Moss Nest' };
+    expect(progressLost(current, fresh, id => names[id])).toEqual([
+      { kind: 'check-ins', text: '1 check-in (1 with a note)' },
+      { kind: 'stage', text: 'the Drake stage (it has Egg)' },
+      { kind: 'streak', text: 'your 6-day streak (it has 0)' },
+      { kind: 'best-streak', text: 'your best streak of 12 days (it has 0)' },
+      { kind: 'bond', text: `some Bond (0 instead of ${Math.floor(bondTotal(current.bond))})` },
+      { kind: 'active-days', text: 'some active days (0 instead of 43)' },
+      { kind: 'milestones', text: 'the First Hatch milestone' },
+      { kind: 'cosmetics', text: 'your Tiny Wizard Hat and Soft Moss Nest' },
+      { kind: 'golden-scales', text: 'some Golden Scales (0 instead of 77)' },
+      { kind: 'energy', text: `some energy (${fresh.energy} instead of ${current.energy})` },
+      { kind: 'focus-sessions', text: 'some focus sessions (0 instead of 9)' },
+    ]);
+  });
+
+  it('finds nothing to lose when the incoming save has as much or more', () => {
+    const current = seasoned();
+    const fresh = createInitialState(NOW);
     expect(progressLost(fresh, current)).toEqual([]);
     expect(progressLost(current, current)).toEqual([]);
+    expect(progressLost(current, structuredClone(current)), 'a copy (as after export and import)').toEqual([]);
+    const more = { ...current, currentStreak: 9, energy: 999, inventory: [...current.inventory, 'hat_crown'], symptomLogs: [...current.symptomLogs, log('2026-10-23T08:00:00.000Z', 'New')] };
+    expect(progressLost(current, more)).toEqual([]);
+  });
+
+  it('warns about a shorter current or best streak on its own', () => {
+    const current = seasoned();
+    expect(progressLost(current, { ...current, currentStreak: 2 })).toEqual([{ kind: 'streak', text: 'your 6-day streak (it has 2)' }]);
+    expect(progressLost(current, { ...current, bestStreak: 1 })).toEqual([{ kind: 'best-streak', text: 'your best streak of 12 days (it has 1)' }]);
+    expect(textOf({ ...current, currentStreak: 1 }, { ...current, currentStreak: 0 }, 'streak')).toBe('your 1-day streak (it has 0)');
+  });
+
+  it('warns about less energy and missing cosmetics, even when the number owned is the same', () => {
+    const current = seasoned(); // owns hat_wizard and nest_moss
+    expect(progressLost(current, { ...current, energy: 300 })).toEqual([{ kind: 'energy', text: `some energy (300 instead of ${current.energy})` }]);
+    const swapped = { ...current, inventory: ['hat_wizard', 'hat_crown'] };
+    expect(progressLost(current, swapped)).toEqual([{ kind: 'cosmetics', text: 'your nest_moss' }]);
+    expect(progressLost(current, swapped, id => (id === 'nest_moss' ? 'Soft Moss Nest' : id))[0].text).toBe('your Soft Moss Nest');
+  });
+
+  it('names earned milestones that are missing, even when the number earned is the same', () => {
+    const current = seasoned(); // has First Hatch
+    const other = { ...current, badges: current.badges.map(b => (b.id === 'badge_hatch' ? { ...b, unlockedAt: undefined } : b.id === 'badge_pet_10' ? { ...b, unlockedAt: NOW.toISOString() } : b)) };
+    expect(summarizeSave(other).badges).toBe(summarizeSave(current).badges);
+    expect(progressLost(current, other)).toEqual([{ kind: 'milestones', text: 'the First Hatch milestone' }]);
+    const two = { ...current, badges: current.badges.map(b => (['badge_hatch', 'badge_streak_3', 'badge_focus_5'].includes(b.id) ? { ...b, unlockedAt: NOW.toISOString() } : b)) };
+    expect(textOf(two, current, 'milestones')).toBe('the Consistent Companion and Zen Master milestones');
+  });
+
+  it('warns about check-ins that are missing, even when the number of check-ins is the same', () => {
+    const current = withLogs(seasoned(), [log('2026-10-20T08:00:00.000Z', 'Rough night'), log('2026-10-21T08:00:00.000Z')]);
+    const other = withLogs(current, [log('2026-10-20T08:00:00.000Z', 'Rough night'), log('2026-10-22T08:00:00.000Z', 'Different day')]);
+    expect(summarizeSave(other).checkIns).toBe(summarizeSave(current).checkIns);
+    expect(progressLost(current, other)).toEqual([{ kind: 'check-ins', text: '1 check-in' }]);
+    expect(textOf(current, withLogs(current, []), 'check-ins')).toBe('2 check-ins (1 with a note)');
+    const noted = withLogs(current, [log('2026-10-20T08:00:00.000Z', 'A'), log('2026-10-21T08:00:00.000Z', 'B')]);
+    expect(textOf(noted, withLogs(current, []), 'check-ins')).toBe('2 check-ins (2 with notes)');
+  });
+
+  it("warns when a check-in's note or ratings would be replaced by a different version", () => {
+    const current = withLogs(seasoned(), [log('2026-10-20T08:00:00.000Z', 'Rough night', 2, 2), log('2026-10-21T08:00:00.000Z', undefined, 4, 4)]);
+    const noteGone = withLogs(current, [log('2026-10-20T08:00:00.000Z', undefined, 2, 2), current.symptomLogs[1]]);
+    expect(progressLost(current, noteGone)).toEqual([{ kind: 'check-ins-changed', text: "this device's notes or ratings for 1 check-in" }]);
+    const noteEdited = withLogs(current, [log('2026-10-20T08:00:00.000Z', 'Older wording', 2, 2), current.symptomLogs[1]]);
+    expect(kinds(current, noteEdited)).toEqual(['check-ins-changed']);
+    const rated = withLogs(current, [current.symptomLogs[0], log('2026-10-21T08:00:00.000Z', undefined, 1, 4)]);
+    expect(progressLost(current, rated)).toEqual([{ kind: 'check-ins-changed', text: "this device's ratings for 1 check-in" }]);
+    const spaces = withLogs(current, [log('2026-10-20T08:00:00.000Z', ' Rough night ', 2, 2), current.symptomLogs[1]]);
+    expect(progressLost(current, spaces), 'surrounding spaces are not a different note').toEqual([]);
+  });
+
+  it('matches check-ins logged at the same moment one for one', () => {
+    const at = '2026-10-20T08:00:00.000Z';
+    const current = withLogs(seasoned(), [log(at, 'First'), log(at)]);
+    expect(progressLost(current, withLogs(current, [log(at, 'First')]))).toEqual([{ kind: 'check-ins', text: '1 check-in' }]);
+  });
+
+  it('gives the same answer every time and leaves both saves untouched', () => {
+    const current = withLogs(seasoned(), [log('2026-10-20T08:00:00.000Z', 'Note'), log('2026-10-21T08:00:00.000Z')]);
+    const incoming = withLogs(createInitialState(NOW), [log('2026-10-21T08:00:00.000Z', undefined, 5, 5)]);
+    const [before, beforeIncoming] = [structuredClone(current), structuredClone(incoming)];
+    const first = progressLost(current, incoming);
+    expect(progressLost(current, incoming)).toEqual(first);
+    expect([current, incoming]).toEqual([before, beforeIncoming]);
   });
 });

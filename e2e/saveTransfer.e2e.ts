@@ -96,12 +96,65 @@ test('a file with less progress warns before replacing, and Cancel changes nothi
   await makeProgress(page);
   const rev = (await readSave(page))!.rev;
   const dialog = await importText(page, egg);
-  await expect(dialog.getByRole('note')).toContainText('less progress');
-  await expect(dialog.getByRole('note')).toContainText('an earlier stage (Egg instead of Drake)');
+  const note = dialog.getByRole('note');
+  await expect(note).toContainText("The file doesn't have everything that's on this device");
+  // Briefly: the most personal first, the rest one tap away.
+  await expect(note.locator('[data-loss]:visible')).toHaveText(['1 check-in (1 with a note)', 'the Drake stage (it has Egg)', 'your 4-day streak (it has 0)']);
+  await expect(note.getByText('your Tiny Wizard Hat')).toBeHidden();
+  await note.getByText(/^Show \d+ more$/).click();
+  await expect(note.getByText('your Tiny Wizard Hat')).toBeVisible();
+  await expect(note).toContainText('kept as a backup in this browser');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(saveDialog(page)).toHaveCount(0);
   expect((await readSave(page))!.rev, 'nothing was written').toBe(rev);
   expect((await saved(page)).stage).toBe('Drake');
+});
+
+test('a save with a shorter streak, a missing check-in, or an older version of a note warns about exactly that', async ({ page }) => {
+  await makeProgress(page); // a 4-day streak and one check-in noted "Slept better"
+  // The older save: a 2-day streak, and that check-in before its note was written.
+  await editSave(page, 'state.currentStreak = 2; delete state.symptomLogs[0].notes;');
+  await page.reload();
+  await waitForApp(page);
+  const older = await exportSave(page);
+  // Since then: a 6-day streak, the note, and another check-in with a note. Nothing else changed.
+  await editSave(page, `
+    state.currentStreak = 6;
+    state.symptomLogs[0].notes = 'Slept better';
+    state.symptomLogs.push({ date: new Date(Date.now() + 60_000).toISOString(), energy: 3, mood: 3, notes: 'Called Mum' });
+  `);
+  await page.reload();
+  await waitForApp(page);
+  const rev = (await readSave(page))!.rev;
+
+  const dialog = await importText(page, older);
+  // The comparison counts the same check-ins either way; the warning says what really differs.
+  await expect(dialog.getByRole('row', { name: /Streak/ })).toContainText('6 (9)');
+  const note = dialog.getByRole('note');
+  await expect(note.locator('[data-loss]')).toHaveText([
+    '1 check-in (1 with a note)',
+    "this device's notes or ratings for 1 check-in",
+    'your 6-day streak (it has 2)',
+  ]);
+  await expect(note.getByText(/Show \d+ more/)).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect((await readSave(page))!.rev, 'nothing was written').toBe(rev);
+});
+
+test('the save dialogs and Settings explain what backups can and cannot protect against', async ({ page }) => {
+  await makeProgress(page);
+  const file = await exportSave(page);
+  const limits = /up to 3 replaced saves in this browser.*site data deletes them.*exported file is a separate copy/;
+  const sheet = await settings(page);
+  await expect(sheet.locator('#your-save-description')).toContainText(/keeps up to 3 earlier ones here.*clearing the browser's site data deletes them all.*Export a copy to keep one separately/);
+  await page.getByRole('button', { name: 'Close settings' }).click();
+
+  const confirm = await importText(page, file);
+  await expect(confirm.locator('[data-backup-limits]')).toHaveText(limits);
+  await confirm.getByRole('button', { name: 'Replace My Save' }).click();
+  await expect(page.getByRole('status')).toContainText('imported');
+  await (await settings(page)).getByRole('button', { name: /Restore a backup/ }).click();
+  await expect(saveDialog(page).locator('[data-backup-limits]')).toHaveText(limits);
 });
 
 test('the current save can be downloaded from the import confirmation first', async ({ page }) => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Download, HardDrive, History, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, Upload, X } from 'lucide-react';
 import { StorageProtection, requestStorageProtection, storageProtection } from '../lib/persistence';
 import { versionLabel } from '../lib/buildInfo';
+import { BACKUPS_KEPT } from '../lib/store';
 import { cn } from '../lib/utils';
 import { ThemePreference } from '../lib/theme';
 import { Dialog } from './Dialog';
@@ -152,8 +153,9 @@ export function SettingsSheet({
       <section className="mb-6" aria-labelledby="your-save-title">
         <h3 id="your-save-title" className="text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">Your save</h3>
         <p id="your-save-description" className="text-sm text-fg-muted mb-3">
-          Your save lives only on this device. Export a copy to keep it safe or to move it to another device by hand.
-          The file includes your check-ins and notes, so keep it somewhere private.
+          Your save lives only in this browser on this device. When a save is replaced, Ember keeps up to {BACKUPS_KEPT} earlier
+          ones here too, but clearing the browser's site data deletes them all. Export a copy to keep one separately or to move
+          it to another device by hand. The file includes your check-ins and notes, so keep it somewhere private.
         </p>
         {!saveAvailable && (
           <p className="text-sm text-fg-muted mb-3">Saving isn't available right now (preview mode), so there's nothing to export or import into.</p>
