@@ -52,6 +52,28 @@ There is **no service worker** (it needs separate approval). Until there is one:
 - **File import and export:** export uses a download, which iOS may offer through the
   Files app or the share sheet. Check both directions with the Files app.
 
+## Covered by automated browser tests (emulated)
+
+The Playwright suite runs in Chromium at 390px, at 360px (the phone layout spec)
+and as an emulated Pixel 7 (touch, mobile user agent, high-density screen). For
+Alpha Foundations it checks:
+
+- Export, reset and import round trips (every field of the save comes back exactly),
+  backups and restore, the loss warning, and rejected files (not JSON, not an Ember
+  save, a newer version, a damaged checksum).
+- Interrupted imports: a failed write changes nothing and can be retried, closing the
+  page at the confirmation changes nothing, and a reload right after confirming
+  leaves either the old or the new save, never a mix.
+- A confirmation reviewed before another tab saved progress replaces nothing, and an
+  import in one tab shows up in the other.
+- No requests to other sites on any screen; the manifest, icons, theme color and
+  build version.
+- Phone layout and 44×44px tap targets, contrast (WCAG AA) in light and dark mode
+  with reduced motion, and dialog focus and Escape for the new dialogs.
+
+None of this runs Safari's engine, a real installed app, real storage eviction, a
+real file picker or share sheet, or a screen reader. Those need the checklist below.
+
 ## Physical-device checklist
 
 Run each release on a real iPhone (Safari and Home Screen) and a real Android phone

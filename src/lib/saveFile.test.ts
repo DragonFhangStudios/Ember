@@ -174,6 +174,16 @@ describe('importing a save', () => {
     expect(await readSaveFile(JSON.stringify(junk), NOW)).toMatchObject({ ok: false, problem: 'unrecognized' });
   });
 
+  it("never takes a device id from a file (a hand-made one can't claim this device's Bond)", async () => {
+    const file = JSON.parse(await createSaveFile(seasoned(), NOW));
+    file.state.deviceId = 'device-from-file';
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonicalJson(file.state)));
+    file.checksum = `sha256:${[...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')}`;
+    const result = await readSaveFile(JSON.stringify(file), NOW);
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.state).not.toHaveProperty('deviceId');
+  });
+
   it(`refuses files over ${SAVE_FILE_MAX_BYTES / 1024 / 1024} MB without parsing them`, async () => {
     const result = await readSaveFile('x'.repeat(SAVE_FILE_MAX_BYTES + 1), NOW);
     expect(result).toMatchObject({ ok: false, problem: 'too-large' });

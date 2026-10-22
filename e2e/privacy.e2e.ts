@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { contrastProblems, lightPanelsInDarkMode, settle } from './contrast';
 import { editSave, expect, openApp, test, waitForApp } from './fixtures';
 
 // Privacy and feedback (#32): a plain explanation of what's kept and sent, and
@@ -82,3 +83,19 @@ test('without clipboard access, the text can be selected and copied by hand', as
   });
   expect(selected, 'focusing the box selects all of it').toBe(true);
 });
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the privacy sheet meets WCAG AA contrast in ${scheme} mode, with reduced motion`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+    await page.reload();
+    await waitForApp(page);
+    const { privacy } = await openPrivacy(page);
+    await expect(privacy.getByLabel('Diagnostics')).not.toHaveValue('');
+    for (const part of ['top', 'bottom'] as const) {
+      if (part === 'bottom') await privacy.getByText(/medical disclaimer/).scrollIntoViewIfNeeded();
+      await settle(page);
+      expect(await contrastProblems(page), `${scheme} ${part}`).toEqual([]);
+      expect(await lightPanelsInDarkMode(page), `${scheme} ${part}`).toEqual([]);
+    }
+  });
+}

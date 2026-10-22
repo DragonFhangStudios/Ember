@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import type { BrowserContext, Page } from '@playwright/test';
+import { contrastProblems, lightPanelsInDarkMode, settle } from './contrast';
 import { bondOf, editSave, expect, openApp, readSave, test, waitForApp } from './fixtures';
 
 // Save export, import and backups (#32): nothing is ever replaced without a
@@ -186,4 +187,238 @@ test('an import in one tab shows up in the other', async ({ page, context }) => 
   const dialog = await importText(page, file);
   await dialog.getByRole('button', { name: 'Replace My Save' }).click();
   await expect(other.getByRole('heading', { name: 'Drake', exact: true })).toBeVisible();
+});
+
+// --- Interrupted imports and full-fidelity round trips (Phase E) ---
+
+/** The backups list as stored (raw IndexedDB). */
+const storedBackups = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number>(resolve => {
+        const open = indexedDB.open('ember');
+        open.onsuccess = () => {
+          const get = open.result.transaction('saves').objectStore('saves').get('backups');
+          get.onsuccess = () => {
+            open.result.close();
+            resolve(Array.isArray(get.result) ? get.result.length : 0);
+          };
+        };
+      }),
+  );
+
+test('a write failure in the middle of an import changes nothing, and the import can simply be retried', async ({ page }) => {
+  await makeProgress(page);
+  const file = await exportSave(page);
+  await editSave(page, "state.stage = 'Hatchling'; state.goldenScales = 5;");
+  await page.reload();
+  await waitForApp(page);
+  const before = (await readSave(page))!;
+  const dialog = await importText(page, file);
+  // The next IndexedDB write fails, the way a full disk or a browser error would.
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...args: Parameters<typeof put>) {
+      IDBObjectStore.prototype.put = put;
+      throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    } as typeof put;
+  });
+  await dialog.getByRole('button', { name: 'Replace My Save' }).click();
+  await expect(saveDialog(page)).toHaveAccessibleName("Couldn't finish");
+  await expect(saveDialog(page)).toContainText("wasn't changed");
+  const after = (await readSave(page))!;
+  expect([after.rev, after.state.stage, after.state.goldenScales]).toEqual([before.rev, 'Hatchling', 5]);
+  expect(await storedBackups(page), 'no half-written backup').toBe(0);
+
+  await saveDialog(page).getByRole('button', { name: 'OK' }).click();
+  await expect(saveDialog(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close settings' }).click(); // still open underneath
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await (await importText(page, file)).getByRole('button', { name: 'Replace My Save' }).click();
+  await expect.poll(async () => (await saved(page)).stage).toBe('Drake');
+  expect(await storedBackups(page)).toBe(1);
+});
+
+test('closing the page while the confirmation is open changes nothing', async ({ page }) => {
+  await makeProgress(page);
+  const file = await exportSave(page);
+  await editSave(page, "state.goldenScales = 5;");
+  await page.reload();
+  await waitForApp(page);
+  const before = (await readSave(page))!;
+  await importText(page, file);
+  await page.reload(); // the player closes or reloads instead of answering
+  await waitForApp(page);
+  const after = (await readSave(page))!;
+  expect([after.rev, after.state.goldenScales]).toEqual([before.rev, 5]);
+  expect(await storedBackups(page)).toBe(0);
+});
+
+test('reloading right after confirming leaves either the old save or the new one, never a mix', async ({ page }) => {
+  await makeProgress(page);
+  const file = await exportSave(page);
+  await editSave(page, "state.stage = 'Hatchling'; state.goldenScales = 5;");
+  await page.reload();
+  await waitForApp(page);
+  const dialog = await importText(page, file);
+  await dialog.getByRole('button', { name: 'Replace My Save' }).click({ noWaitAfter: true });
+  await page.evaluate(() => location.reload());
+  await waitForApp(page);
+  const s = await saved(page);
+  const backups = await storedBackups(page);
+  const old = s.stage === 'Hatchling' && s.goldenScales === 5 && backups === 0;
+  const replaced = s.stage === 'Drake' && s.goldenScales === 77 && backups === 1;
+  expect(old || replaced, JSON.stringify({ stage: s.stage, scales: s.goldenScales, backups })).toBe(true);
+});
+
+test('every field of the save survives export and import exactly', async ({ page }) => {
+  await makeProgress(page);
+  // Fill in the rest of the save: theme, cosmetics, quests in progress, a focus history, badges.
+  await editSave(page, `
+    state.theme = 'dark'; state.themeColor = '#F5F3FF';
+    state.equipped = { hat: 'hat_wizard' }; state.petCount = 12;
+    state.focusSessionsCompleted = 7; state.completedFocusSessions = ['f1', 'f2'];
+    state.customQuestTypes = [{ id: 'type_1', label: 'Hobbies', icon: 'Star', color: 'text-amber-500 bg-amber-50' }];
+    state.badges = state.badges.map(b => b.id === 'badge_focus_5' ? { ...b, unlockedAt: '2026-10-20T09:00:00.000Z' } : b);
+  `);
+  await page.reload();
+  await waitForApp(page);
+  await page.getByText('Hydration Goal').click(); // today's reward ledger too
+  await expect.poll(async () => (await saved(page)).daily.questRewards?.q5?.energy).toBe(5);
+  const file = JSON.parse(await exportSave(page));
+
+  const sheet = await settings(page);
+  await sheet.getByRole('button', { name: 'Reset progress…' }).click();
+  await page.getByRole('button', { name: 'Yes, Reset Everything' }).click();
+  await expect.poll(async () => (await saved(page)).stage).toBe('Egg');
+  await (await importText(page, JSON.stringify(file))).getByRole('button', { name: 'Replace My Save' }).click();
+  await expect.poll(async () => (await saved(page)).stage).toBe('Drake');
+
+  const { deviceId: _thisDevice, ...restored } = await saved(page);
+  expect(restored).toEqual(file.state);
+});
+
+for (const scheme of ['light', 'dark'] as const) {
+  test(`every save dialog meets WCAG AA contrast in ${scheme} mode, with reduced motion`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+    const egg = await exportSave(page);
+    await makeProgress(page); // reloads, so reduced motion is in place from the start
+    const expectReadable = async (screen: string) => {
+      await settle(page);
+      expect(await contrastProblems(page), `${scheme} ${screen}`).toEqual([]);
+      expect(await lightPanelsInDarkMode(page), `${scheme} ${screen}`).toEqual([]);
+    };
+
+    const sheet = await settings(page);
+    await sheet.locator('[data-version]').scrollIntoViewIfNeeded();
+    await expectReadable('Settings (Your save, This device)');
+    await page.getByRole('button', { name: 'Close settings' }).click();
+
+    const confirm = await importText(page, egg);
+    await expect(confirm.getByRole('note')).toBeVisible();
+    await expectReadable('import confirmation with loss warning');
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+    await expect(saveDialog(page)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Close settings' }).click();
+
+    const problem = await importText(page, '{"format":"something-else"}');
+    await expect(problem).toHaveAccessibleName("Can't use that file");
+    await expectReadable('import problem');
+    await problem.getByRole('button', { name: 'OK' }).click();
+    await expect(saveDialog(page)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Reset progress…' }).click();
+    await page.getByRole('button', { name: 'Yes, Reset Everything' }).click();
+    await expect.poll(async () => (await saved(page)).stage).toBe('Egg');
+    await (await settings(page)).getByRole('button', { name: /Restore a backup/ }).click();
+    const backups = saveDialog(page);
+    await expect(backups).toHaveAccessibleName('Restore a backup');
+    await expectReadable('backups list');
+    await backups.getByRole('button', { name: /Replaced by a reset/ }).click();
+    await expect(backups).toHaveAccessibleName('Restore this backup?');
+    await expectReadable('restore confirmation');
+  });
+}
+
+/** Records whether the evolution banner ever shows (it only stays 1.5s, so a retrying check would wait it out). */
+const watchForEvolutionBanner = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as { evolutionShown: number };
+    w.evolutionShown = 0;
+    new MutationObserver(() => {
+      if (document.body.textContent?.includes('Evolution Milestone!')) w.evolutionShown++;
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
+const evolutionShown = (page: Page) => page.evaluate(() => (window as unknown as { evolutionShown: number }).evolutionShown);
+
+test("replacing the save (reset, import, restore) isn't celebrated as an evolution", async ({ page }) => {
+  await makeProgress(page);
+  const drake = await exportSave(page);
+  await watchForEvolutionBanner(page);
+  const sheet = await settings(page);
+  await sheet.getByRole('button', { name: 'Reset progress…' }).click();
+  await page.getByRole('button', { name: 'Yes, Reset Everything' }).click();
+  await expect(page.getByRole('status')).toContainText('back to a new egg');
+  expect(await evolutionShown(page), 'after a reset').toBe(0);
+
+  await (await importText(page, drake)).getByRole('button', { name: 'Replace My Save' }).click();
+  await expect(page.getByRole('status')).toContainText('imported');
+  await expect.poll(async () => (await saved(page)).stage).toBe('Drake');
+  expect(await evolutionShown(page), 'after an import').toBe(0);
+
+  await (await settings(page)).getByRole('button', { name: /Restore a backup/ }).click();
+  await saveDialog(page).getByRole('button', { name: /Replaced by an import/ }).click();
+  await saveDialog(page).getByRole('button', { name: 'Restore This Backup' }).click();
+  await expect(page.getByRole('status')).toContainText('Backup restored');
+  expect(await evolutionShown(page), 'after a restore').toBe(0);
+});
+
+test("a reset in another tab isn't celebrated as an evolution here", async ({ page, context }) => {
+  await makeProgress(page);
+  await watchForEvolutionBanner(page);
+  const other = await openTab(context);
+  await other.getByRole('button', { name: 'Settings', exact: true }).click();
+  await other.getByRole('button', { name: 'Reset progress…' }).click();
+  await other.getByRole('button', { name: 'Yes, Reset Everything' }).click();
+  await expect(other.getByRole('status')).toContainText('back to a new egg');
+  await expect.poll(async () => (await saved(page)).stage).toBe('Egg');
+  await page.waitForTimeout(500); // the change arrives here a moment later
+  expect(await evolutionShown(page)).toBe(0);
+});
+
+test('a restore reviewed before another tab saved progress replaces nothing', async ({ page, context }) => {
+  await makeProgress(page);
+  await (await settings(page)).getByRole('button', { name: 'Reset progress…' }).click();
+  await page.getByRole('button', { name: 'Yes, Reset Everything' }).click();
+  await expect.poll(async () => (await saved(page)).stage).toBe('Egg');
+  await (await settings(page)).getByRole('button', { name: /Restore a backup/ }).click();
+  await saveDialog(page).getByRole('button', { name: /Replaced by a reset/ }).click();
+  await expect(saveDialog(page)).toHaveAccessibleName('Restore this backup?');
+
+  const other = await openTab(context);
+  await other.getByText('Hydration Goal').click(); // progress, saved from the other tab
+  await expect.poll(async () => (await saved(page)).daily.questRewards?.q5?.energy).toBe(5);
+  const rev = (await readSave(page))!.rev;
+  await saveDialog(page).getByRole('button', { name: 'Restore This Backup' }).click();
+  await expect(saveDialog(page)).toHaveAccessibleName('Your save changed');
+  expect((await readSave(page))!.rev, 'nothing was written').toBe(rev);
+  expect((await saved(page)).stage).toBe('Egg');
+});
+
+test('the import confirmation is a labelled modal: focus starts on Cancel, stays inside, and Escape writes nothing', async ({ page }) => {
+  const egg = await exportSave(page);
+  await makeProgress(page);
+  const rev = (await readSave(page))!.rev;
+  const dialog = await importText(page, egg);
+  await expect(dialog).toHaveAccessibleName('Replace your save?');
+  await expect(dialog).toHaveAccessibleDescription(/.+/);
+  await expect(dialog.getByRole('button', { name: 'Cancel' }), 'the safe choice has focus').toBeFocused();
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('Tab');
+    expect(await dialog.evaluate(d => d.contains(document.activeElement)), 'focus stays in the dialog').toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(saveDialog(page)).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Settings' }), 'back where the player was').toBeVisible();
+  expect((await readSave(page))!.rev, 'nothing was written').toBe(rev);
 });

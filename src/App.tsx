@@ -33,7 +33,7 @@ import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
 import { Antic, DragonAvatar, Reaction } from './components/DragonAvatar';
 import { CELEBRATION_MS } from './components/Celebration';
-import { bondLevel, bondTotal } from './lib/evolution';
+import { STAGE_ORDER, bondLevel, bondTotal } from './lib/evolution';
 import { StatsHeader } from './components/StatsHeader';
 import { QuestItem } from './components/QuestItem';
 import { FocusTimer } from './components/FocusTimer';
@@ -397,9 +397,9 @@ export default function App() {
     }
   }, [theme, dark, themeColor]);
 
-  // Detect stage changes for level up animation
+  // Celebrate growing into a new stage (never going back, as after a reset).
   useEffect(() => {
-    if (state && prevStageRef.current && state.stage !== prevStageRef.current) {
+    if (state && prevStageRef.current && STAGE_ORDER.indexOf(state.stage) > STAGE_ORDER.indexOf(prevStageRef.current)) {
       setIsLevelingUp(true);
       setTimeout(() => setIsLevelingUp(false), EVOLUTION_CELEBRATION_MS);
     }
@@ -502,6 +502,7 @@ export default function App() {
     const fresh = { ...createInitialState(now), theme: state.theme, themeColor: state.themeColor };
     store.replace(fresh, { reason: 'reset', now }).then(
       result => {
+        prevStageRef.current = result.state.stage; // a replaced save isn't an evolution
         show(epoch, result);
         setSaveError(null);
         showFeedback('Ember is back to a new egg. Your previous save is kept as a backup in Settings.');
@@ -570,6 +571,7 @@ export default function App() {
     setSaveBusy(true);
     try {
       const result = await write(store);
+      prevStageRef.current = result.state.stage; // a replaced save isn't an evolution
       show(epoch, result);
       setSaveError(null);
       setSaveDialog(null);

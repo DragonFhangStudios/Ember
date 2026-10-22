@@ -411,6 +411,20 @@ describe('replacing the save (import, restore, reset; #32)', () => {
     store.close();
   });
 
+  it('refuses a restore reviewed against an older save (another tab changed it), changing nothing', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([h.open(), h.open()]);
+    await a.store.replace(withScales(7), { reason: 'import' });
+    const [backup] = await a.store.listBackups();
+    const reviewed = (await a.store.read()).rev;
+    await b.store.update(s => ({ ...s, goldenScales: 99 })); // progress in another tab
+    await expect(a.store.restoreBackup(backup.id, { expectedRev: reviewed })).rejects.toBeInstanceOf(SaveChangedError);
+    expect((await a.store.read()).state.goldenScales).toBe(99);
+    expect((await a.store.listBackups()).map(x => x.id)).toEqual([backup.id]);
+    a.store.close();
+    b.store.close();
+  });
+
   it('a backup restored in one tab is gone for another tab, which changes nothing', async () => {
     const h = harness();
     const [a, b] = await Promise.all([h.open(), h.open()]);

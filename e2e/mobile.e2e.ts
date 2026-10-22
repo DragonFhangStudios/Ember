@@ -1,5 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
-import { expect, goToTab, openApp, readSave, test, waitForApp } from './fixtures';
+import { editSave, expect, goToTab, openApp, readSave, test, waitForApp } from './fixtures';
 
 // Phone layout (#16). Runs at 390px, at 360px, and on an emulated Pixel 7
 // (touch, mobile user agent, high-density screen); see playwright.config.ts.
@@ -243,4 +244,37 @@ test('quests also work from the keyboard (Enter or Space)', async ({ page }) => 
   await page.getByRole('button', { name: /^Morning Routine/ }).focus();
   await page.keyboard.press('Enter');
   await expect.poll(async () => (await readSave(page))?.state.energy).toBe(60);
+});
+
+test('the save dialogs (import, problems, backups) fit the phone, with tap targets of at least 44×44px', async ({ page }) => {
+  const settingsSheet = page.getByRole('dialog', { name: 'Settings' });
+  const chooseFile = (text: string) =>
+    settingsSheet.getByLabel('Choose a save file to import').setInputFiles({ name: 'ember-save.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const [download] = await Promise.all([page.waitForEvent('download'), settingsSheet.getByRole('button', { name: 'Export save' }).click()]);
+  const egg = await readFile((await download.path())!, 'utf8');
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  // Long-ish real values, so the comparison table is at its widest.
+  await editSave(page, "state.stage = 'Fledgling'; state.goldenScales = 123456; state.bestStreak = 365; state.bond = { other: 99999 };");
+  await page.reload();
+  await waitForApp(page);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await settingsSheet.locator('[data-version]').scrollIntoViewIfNeeded();
+  await expectGoodLayout(page, 'Settings'); // with Your save and This device
+  await chooseFile(egg);
+  await expectGoodLayout(page, 'Replace your save?'); // the comparison and the loss warning
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await chooseFile('not a save');
+  await expectGoodLayout(page, "Can't use that file");
+  await page.getByRole('button', { name: 'OK' }).click();
+  await page.getByRole('button', { name: 'Reset progress…' }).click();
+  await page.getByRole('button', { name: 'Yes, Reset Everything' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await settingsSheet.getByRole('button', { name: /Restore a backup/ }).click();
+  await expectGoodLayout(page, 'Restore a backup');
+  await page.getByRole('button', { name: /Replaced by a reset/ }).click();
+  await expectGoodLayout(page, 'Restore this backup?');
 });
