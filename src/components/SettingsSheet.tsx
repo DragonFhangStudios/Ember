@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, HardDrive, History, Monitor, Moon, Palette, RotateCcw, Sun, Upload, X } from 'lucide-react';
+import { Download, HardDrive, History, Monitor, Moon, Palette, RotateCcw, ShieldCheck, Sun, Upload, X } from 'lucide-react';
 import { StorageProtection, requestStorageProtection, storageProtection } from '../lib/persistence';
 import { versionLabel } from '../lib/buildInfo';
 import { cn } from '../lib/utils';
@@ -40,6 +40,8 @@ interface SettingsSheetProps {
   /** A file the player picked; it's checked and confirmed before anything changes. */
   onImportFile: (file: File) => void;
   onShowBackups: () => void;
+  /** Opens what Ember stores and sends, and copyable diagnostics. */
+  onShowPrivacy: () => void;
 }
 
 /** A bottom sheet for appearance and data settings, so the header fits a phone. */
@@ -56,6 +58,7 @@ export function SettingsSheet({
   onExport,
   onImportFile,
   onShowBackups,
+  onShowPrivacy,
 }: SettingsSheetProps) {
   const background = (themeColor ?? DEFAULT_BACKGROUND).toLowerCase();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -207,6 +210,10 @@ export function SettingsSheet({
             Ask the browser to keep Ember's data
           </button>
         )}
+        <button onClick={onShowPrivacy} className={`${action} mt-2`}>
+          <ShieldCheck aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+          Privacy and feedback…
+        </button>
         <p className="text-xs text-fg-muted mt-3" data-version>
           Ember version {versionLabel()}
         </p>

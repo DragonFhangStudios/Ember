@@ -28,6 +28,7 @@ import { SAVE_FILE_MAX_BYTES, SAVE_FILE_PROBLEMS, createSaveFile, readSaveFile, 
 import { downloadText } from './lib/download';
 import { APP_VERSION } from './lib/buildInfo';
 import { SaveDialogState, SaveTransferDialog } from './components/SaveTransferDialog';
+import { PrivacyDialog } from './components/PrivacyDialog';
 import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
 import { Antic, DragonAvatar, Reaction } from './components/DragonAvatar';
@@ -132,6 +133,7 @@ export default function App() {
   const [saveDialog, setSaveDialog] = useState<SaveDialogState | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [backupCount, setBackupCount] = useState(0);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [isPetted, setIsPetted] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -922,7 +924,10 @@ export default function App() {
         onExport={exportSave}
         onImportFile={handleImportFile}
         onShowBackups={showBackups}
+        onShowPrivacy={() => setShowPrivacy(true)}
       />
+
+      <PrivacyDialog open={showPrivacy} onClose={() => setShowPrivacy(false)} />
 
       <SaveTransferDialog
         state={saveDialog}

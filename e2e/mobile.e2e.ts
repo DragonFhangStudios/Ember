@@ -95,6 +95,9 @@ test('every screen and dialog fits the phone, with tap targets of at least 44×4
   await page.getByRole('button', { name: 'Reset progress…' }).click();
   await expectGoodLayout(page, 'Reset Progress?');
   await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Privacy and feedback…' }).click();
+  await expectGoodLayout(page, 'Privacy and your data');
+  await page.getByRole('button', { name: 'Close privacy' }).click();
   await page.getByRole('button', { name: 'Close settings' }).click();
 
   await goToTab(page, 'Home');
