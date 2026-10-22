@@ -1,4 +1,5 @@
-import { Monitor, Moon, Palette, RotateCcw, Sun, X } from 'lucide-react';
+import { useRef } from 'react';
+import { Download, History, Monitor, Moon, Palette, RotateCcw, Sun, Upload, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ThemePreference } from '../lib/theme';
 import { Dialog } from './Dialog';
@@ -29,11 +30,34 @@ interface SettingsSheetProps {
   onThemePreference: (preference: ThemePreference) => void;
   /** Opens the reset confirmation; nothing is reset from here directly. */
   onResetRequest: () => void;
+  /** False when there's no save to export or import into (preview mode). */
+  saveAvailable: boolean;
+  /** How many replaced saves are kept on this device. */
+  backupCount: number;
+  onExport: () => void;
+  /** A file the player picked; it's checked and confirmed before anything changes. */
+  onImportFile: (file: File) => void;
+  onShowBackups: () => void;
 }
 
 /** A bottom sheet for appearance and data settings, so the header fits a phone. */
-export function SettingsSheet({ isOpen, themeColor, theme, onClose, onThemeChange, onThemePreference, onResetRequest }: SettingsSheetProps) {
+export function SettingsSheet({
+  isOpen,
+  themeColor,
+  theme,
+  onClose,
+  onThemeChange,
+  onThemePreference,
+  onResetRequest,
+  saveAvailable,
+  backupCount,
+  onExport,
+  onImportFile,
+  onShowBackups,
+}: SettingsSheetProps) {
   const background = (themeColor ?? DEFAULT_BACKGROUND).toLowerCase();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const action = 'w-full min-h-11 flex items-center gap-3 rounded-2xl px-4 py-2 bg-surface-muted text-fg font-bold text-left disabled:opacity-60';
 
   return (
     <Dialog
@@ -105,6 +129,46 @@ export function SettingsSheet({ isOpen, themeColor, theme, onClose, onThemeChang
           ))}
         </div>
       </fieldset>
+
+      <section className="mb-6" aria-labelledby="your-save-title">
+        <h3 id="your-save-title" className="text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">Your save</h3>
+        <p id="your-save-description" className="text-sm text-fg-muted mb-3">
+          Your save lives only on this device. Export a copy to keep it safe or to move it to another device by hand.
+          The file includes your check-ins and notes, so keep it somewhere private.
+        </p>
+        {!saveAvailable && (
+          <p className="text-sm text-fg-muted mb-3">Saving isn't available right now (preview mode), so there's nothing to export or import into.</p>
+        )}
+        <div className="flex flex-col gap-2">
+          <button onClick={onExport} disabled={!saveAvailable} className={action}>
+            <Download aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+            Export save
+          </button>
+          <button onClick={() => fileInputRef.current?.click()} disabled={!saveAvailable} className={action}>
+            <Upload aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+            Import save…
+          </button>
+          {backupCount > 0 && (
+            <button onClick={onShowBackups} disabled={!saveAvailable} className={action}>
+              <History aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+              Restore a backup… <span className="ml-auto text-sm font-medium text-fg-muted">{backupCount}</span>
+            </button>
+          )}
+        </div>
+        {/* The real file picker, opened by "Import save…". */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          aria-label="Choose a save file to import"
+          hidden
+          onChange={e => {
+            const file = e.target.files?.[0];
+            e.target.value = ''; // the same file can be picked again
+            if (file) onImportFile(file);
+          }}
+        />
+      </section>
 
       <section className="pt-4 border-t border-line">
         <button

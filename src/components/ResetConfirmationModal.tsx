@@ -22,7 +22,7 @@ export function ResetConfirmationModal({ isOpen, onClose, onConfirm }: ResetConf
 
       <h2 id="reset-title" className="serif text-2xl font-bold text-fg mb-2">Reset Progress?</h2>
       <p id="reset-description" className="text-fg-muted text-sm mb-8">
-        This will return Ember to its egg stage and clear all your data. This action cannot be undone.
+        This returns Ember to the egg stage and starts over. Your current save is kept as a backup, so you can restore it from Settings.
       </p>
 
       <div className="flex flex-col gap-3">

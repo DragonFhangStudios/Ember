@@ -23,7 +23,10 @@ import {
   petDragon,
 } from './lib/progression';
 import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/focusSession';
-import { EmberStore, LegacySaveUnreadableError, StoreResult, openStore } from './lib/store';
+import { BackupMissingError, EmberStore, LegacySaveUnreadableError, SaveBackup, SaveChangedError, StoreResult, openStore } from './lib/store';
+import { SAVE_FILE_MAX_BYTES, SAVE_FILE_PROBLEMS, createSaveFile, readSaveFile, saveFileName } from './lib/saveFile';
+import { downloadText } from './lib/download';
+import { SaveDialogState, SaveTransferDialog } from './components/SaveTransferDialog';
 import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
 import { Antic, DragonAvatar, Reaction } from './components/DragonAvatar';
@@ -124,6 +127,10 @@ export default function App() {
   const [editingQuestId, setEditingQuestId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  // Save export, import and backups (#32).
+  const [saveDialog, setSaveDialog] = useState<SaveDialogState | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [backupCount, setBackupCount] = useState(0);
   const [isPetted, setIsPetted] = useState(false);
   const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -357,7 +364,7 @@ export default function App() {
   const napping = state?.isNapping ?? false;
   useEffect(() => {
     cancelEasterEgg();
-  }, [softDay, napping, focusOngoing, activeTab, showCustomQuest, showSettings, showResetConfirm, questOptions, editingQuestId]);
+  }, [softDay, napping, focusOngoing, activeTab, showCustomQuest, showSettings, showResetConfirm, questOptions, editingQuestId, saveDialog]);
 
   // When the session's end time passes, settle it. Any tab may do this; the
   // store transaction makes sure it's rewarded once.
@@ -477,13 +484,140 @@ export default function App() {
     update(current => ({ ...current, theme: preference }));
   };
 
+  // Starting over keeps the current save as a backup (restorable from Settings).
   const handleResetProgress = () => {
-    runAction((current, now) => ({
-      state: { ...createInitialState(now), theme: current.theme, themeColor: current.themeColor, deviceId: current.deviceId },
-    }));
+    const store = storeRef.current;
+    if (!store || !state) {
+      if (saveModeRef.current === 'preview') showFeedback("Preview mode: that wasn't saved.");
+      return;
+    }
+    const epoch = epochRef.current;
+    const now = new Date();
+    const fresh = { ...createInitialState(now), theme: state.theme, themeColor: state.themeColor };
+    store.replace(fresh, { reason: 'reset', now }).then(
+      result => {
+        show(epoch, result);
+        setSaveError(null);
+        showFeedback('Ember is back to a new egg. Your previous save is kept as a backup in Settings.');
+      },
+      error => {
+        console.error('Ember could not reset', error);
+        setSaveError("Ember couldn't reset just now, so nothing changed. Please try again.");
+      },
+    );
     setActiveTab('dashboard');
     setShowResetConfirm(false);
     setShowSettings(false);
+  };
+
+  // --- Your save: export, import, restore (nothing is replaced without a confirmation) ---
+
+  const refreshBackupCount = useCallback(() => {
+    storeRef.current?.listBackups().then(b => setBackupCount(b.length), () => setBackupCount(0));
+  }, []);
+  useEffect(() => {
+    if (showSettings) refreshBackupCount();
+  }, [showSettings, refreshBackupCount]);
+
+  const saveProblem = (title: string, message: string) => setSaveDialog({ kind: 'problem', title, message });
+
+  /** Downloads the latest committed save (not just what this tab shows). */
+  const exportSave = async () => {
+    const store = storeRef.current;
+    if (!store) return;
+    try {
+      const { state: saved } = await store.read();
+      const now = new Date();
+      downloadText(saveFileName(now), await createSaveFile(saved, now));
+      showFeedback('Save exported. It includes your check-ins and notes, so keep the file somewhere private.');
+    } catch (error) {
+      console.error('Ember could not export the save', error);
+      saveProblem("Couldn't export", "Ember couldn't export your save just now. Please try again.");
+    }
+  };
+
+  const handleImportFile = async (file: File) => {
+    const store = storeRef.current;
+    if (!store) return;
+    if (file.size > SAVE_FILE_MAX_BYTES) return saveProblem("Can't use that file", SAVE_FILE_PROBLEMS['too-large']);
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      return saveProblem("Can't use that file", "Ember couldn't read that file.");
+    }
+    const read = await readSaveFile(text, new Date());
+    if (read.ok === false) return saveProblem("Can't use that file", read.message);
+    try {
+      const current = await store.read();
+      setSaveDialog({ kind: 'import', current: current.state, incoming: read.state, exportedAt: read.exportedAt, expectedRev: current.rev });
+    } catch {
+      saveProblem("Couldn't import", "Ember couldn't read the save on this device just now. Please try again.");
+    }
+  };
+
+  /** Writes a replacement the player confirmed; refuses if the save changed since they reviewed it. */
+  const replaceConfirmed = async (write: (store: EmberStore<UserState>) => Promise<StoreResult<UserState>>, done: string) => {
+    const store = storeRef.current;
+    if (!store || saveBusy) return;
+    const epoch = epochRef.current;
+    setSaveBusy(true);
+    try {
+      const result = await write(store);
+      show(epoch, result);
+      setSaveError(null);
+      setSaveDialog(null);
+      setShowSettings(false);
+      setActiveTab('dashboard');
+      showFeedback(done);
+      commit(); // bring the new save up to today (a new day, a finished focus session)
+    } catch (error) {
+      if (error instanceof SaveChangedError) {
+        saveProblem('Your save changed', 'Your save changed while you were reviewing (perhaps in another tab), so nothing was replaced. Please review it again.');
+      } else if (error instanceof BackupMissingError) {
+        saveProblem('Backup not found', 'That backup is no longer available (it may have been restored in another tab).');
+      } else {
+        console.error('Ember could not replace the save', error);
+        saveProblem("Couldn't finish", "Ember couldn't finish that just now.");
+      }
+    } finally {
+      setSaveBusy(false);
+      refreshBackupCount();
+    }
+  };
+
+  const confirmImport = () => {
+    if (saveDialog?.kind !== 'import') return;
+    const { incoming, expectedRev } = saveDialog;
+    replaceConfirmed(
+      store => store.replace(incoming, { reason: 'import', expectedRev }),
+      'Save imported. Your previous save is kept as a backup in Settings.',
+    );
+  };
+
+  const showBackups = async () => {
+    const store = storeRef.current;
+    if (!store) return;
+    try {
+      const [current, backups] = await Promise.all([store.read(), store.listBackups()]);
+      if (!backups.length) return saveProblem('No backups yet', 'There are no replaced saves on this device to restore.');
+      setSaveDialog({ kind: 'backups', current: current.state, backups, expectedRev: current.rev });
+    } catch {
+      saveProblem("Couldn't open backups", "Ember couldn't read the backups just now. Please try again.");
+    }
+  };
+
+  const chooseBackup = (backup: SaveBackup<UserState>) => {
+    setSaveDialog(d => (d?.kind === 'backups' ? { kind: 'restore', current: d.current, backup, backups: d.backups, expectedRev: d.expectedRev } : d));
+  };
+
+  const confirmRestore = () => {
+    if (saveDialog?.kind !== 'restore') return;
+    const { backup, expectedRev } = saveDialog;
+    replaceConfirmed(
+      store => store.restoreBackup(backup.id, { expectedRev }),
+      'Backup restored. The save it replaced is kept as a backup too.',
+    );
   };
 
   const closeSettings = useCallback(() => setShowSettings(false), []);
@@ -779,6 +913,24 @@ export default function App() {
         onThemeChange={handleUpdateTheme}
         onThemePreference={handleThemePreference}
         onResetRequest={() => setShowResetConfirm(true)}
+        saveAvailable={!isPreview && storeRef.current !== null}
+        backupCount={backupCount}
+        onExport={exportSave}
+        onImportFile={handleImportFile}
+        onShowBackups={showBackups}
+      />
+
+      <SaveTransferDialog
+        state={saveDialog}
+        busy={saveBusy}
+        onConfirmImport={confirmImport}
+        onDownloadCurrent={exportSave}
+        onChooseBackup={chooseBackup}
+        onBackToBackups={() =>
+          setSaveDialog(d => (d?.kind === 'restore' ? { kind: 'backups', current: d.current, backups: d.backups, expectedRev: d.expectedRev } : d))
+        }
+        onConfirmRestore={confirmRestore}
+        onClose={() => setSaveDialog(null)}
       />
 
       <ResetConfirmationModal 
