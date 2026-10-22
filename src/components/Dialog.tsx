@@ -63,7 +63,12 @@ function OpenDialog({ onClose, labelledBy, describedBy, variant = 'center', pane
     openers.set(dialog, opener);
     closingRef.current = false;
     dialog.showModal();
-    dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    // The browser focuses the first focusable area, which can be a scrolling
+    // panel (Chrome treats scrollers as focusable), so pick the control ourselves.
+    const firstControl = [...dialog.querySelectorAll<HTMLElement>(TABBABLE)].find(
+      el => !el.hasAttribute('disabled') && el.getClientRects().length > 0,
+    );
+    (dialog.querySelector<HTMLElement>('[data-autofocus]') ?? firstControl)?.focus();
     return () => {
       closingRef.current = true;
       if (dialog.open) dialog.close();

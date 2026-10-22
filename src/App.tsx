@@ -26,6 +26,7 @@ import { focusView, pauseFocus, resetFocus, settle, startFocus } from './lib/foc
 import { BackupMissingError, EmberStore, LegacySaveUnreadableError, SaveBackup, SaveChangedError, StoreResult, openStore } from './lib/store';
 import { SAVE_FILE_MAX_BYTES, SAVE_FILE_PROBLEMS, createSaveFile, readSaveFile, saveFileName } from './lib/saveFile';
 import { downloadText } from './lib/download';
+import { APP_VERSION } from './lib/buildInfo';
 import { SaveDialogState, SaveTransferDialog } from './components/SaveTransferDialog';
 import { createRevisionGate } from './lib/revisionGate';
 import { parseLegacySave } from './lib/legacySave';
@@ -381,15 +382,18 @@ export default function App() {
   const systemDark = useSystemDark();
   const theme = state?.theme;
   const dark = theme ? resolveDark(theme, systemDark) : document.documentElement.classList.contains('dark');
+  const themeColor = state?.themeColor;
   useEffect(() => {
     if (!theme) return;
     document.documentElement.classList.toggle('dark', dark);
+    // The browser's status-bar color matches the page background.
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', readableBackground(themeColor, dark) ?? (dark ? '#121212' : '#F5F5F0'));
     try {
       localStorage.setItem(THEME_HINT_KEY, theme);
     } catch {
       // Only a startup hint; the save is the source of truth.
     }
-  }, [theme, dark]);
+  }, [theme, dark, themeColor]);
 
   // Detect stage changes for level up animation
   useEffect(() => {
@@ -528,7 +532,7 @@ export default function App() {
     try {
       const { state: saved } = await store.read();
       const now = new Date();
-      downloadText(saveFileName(now), await createSaveFile(saved, now));
+      downloadText(saveFileName(now), await createSaveFile(saved, now, APP_VERSION));
       showFeedback('Save exported. It includes your check-ins and notes, so keep the file somewhere private.');
     } catch (error) {
       console.error('Ember could not export the save', error);

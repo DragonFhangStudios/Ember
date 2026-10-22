@@ -1,5 +1,7 @@
-import { useRef } from 'react';
-import { Download, History, Monitor, Moon, Palette, RotateCcw, Sun, Upload, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Download, HardDrive, History, Monitor, Moon, Palette, RotateCcw, Sun, Upload, X } from 'lucide-react';
+import { StorageProtection, requestStorageProtection, storageProtection } from '../lib/persistence';
+import { versionLabel } from '../lib/buildInfo';
 import { cn } from '../lib/utils';
 import { ThemePreference } from '../lib/theme';
 import { Dialog } from './Dialog';
@@ -57,6 +59,20 @@ export function SettingsSheet({
 }: SettingsSheetProps) {
   const background = (themeColor ?? DEFAULT_BACKGROUND).toLowerCase();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [protection, setProtection] = useState<StorageProtection | null>(null);
+  const [asked, setAsked] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    let current = true;
+    storageProtection().then(p => current && setProtection(p));
+    return () => {
+      current = false;
+    };
+  }, [isOpen]);
+  const askToKeep = async () => {
+    setProtection(await requestStorageProtection());
+    setAsked(true);
+  };
   const action = 'w-full min-h-11 flex items-center gap-3 rounded-2xl px-4 py-2 bg-surface-muted text-fg font-bold text-left disabled:opacity-60';
 
   return (
@@ -168,6 +184,32 @@ export function SettingsSheet({
             if (file) onImportFile(file);
           }}
         />
+      </section>
+
+      <section className="mb-6" aria-labelledby="this-device-title">
+        <h3 id="this-device-title" className="text-xs font-bold uppercase tracking-widest text-fg-muted mb-2">This device</h3>
+        <div className="flex gap-3 text-sm text-fg-muted mb-3">
+          <HardDrive aria-hidden="true" className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <p id="storage-status" data-storage={protection ?? 'checking'}>
+            {protection === null && 'Checking how this browser stores Ember…'}
+            {protection === 'kept' &&
+              "This browser has agreed to keep Ember's data unless you clear it yourself. Exporting a copy now and then is still a good idea."}
+            {protection === 'may-clear' &&
+              (asked
+                ? "The browser didn't agree this time. It decides for itself (often after Ember is added to your home screen or used for a while). Exporting a copy keeps your save safe."
+                : "This browser may clear Ember's data if the device runs low on space, or (on iPhone) after a while without opening Ember. Adding Ember to your home screen and exporting a copy help.")}
+            {protection === 'unsupported' && "This browser can't be asked to keep Ember's data. Exporting a copy keeps your save safe."}
+          </p>
+        </div>
+        {protection === 'may-clear' && !asked && (
+          <button onClick={askToKeep} className={action} aria-describedby="storage-status">
+            <HardDrive aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+            Ask the browser to keep Ember's data
+          </button>
+        )}
+        <p className="text-xs text-fg-muted mt-3" data-version>
+          Ember version {versionLabel()}
+        </p>
       </section>
 
       <section className="pt-4 border-t border-line">

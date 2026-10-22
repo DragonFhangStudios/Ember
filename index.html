@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Ember Wellness</title>
+    <meta name="description" content="A gentle wellness companion. If you can take care of Ember, you can learn to take care of yourself." />
+    <!-- Installable as a home-screen app (#32). Icons are temporary, not final art. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Ember" />
+    <!-- Browser and status-bar color; follows the app's theme (set below and in App). -->
+    <meta name="theme-color" content="#F5F5F0" />
     <script>
       // Applies the theme before the first paint, so there's no flash of the
       // wrong theme while the save loads (the app takes over once it has).
@@ -17,6 +25,7 @@
         }
         if (preference === 'dark' || (preference !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
           document.documentElement.classList.add('dark');
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#121212');
         }
       } catch (e) {}
     </script>
