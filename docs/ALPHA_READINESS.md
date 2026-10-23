@@ -4,6 +4,10 @@ Private phone testing (#32) needs more than this repository can provide. This pa
 lists what the app now does, what still needs **hosting** (not authorized yet), and
 what can only be checked on a **physical iPhone and Android phone**.
 
+For the first closed alpha, see [docs/alpha](alpha/LAUNCH_CHECKLIST.md): the
+launch checklist, the [hosting runbook](alpha/HOSTING_RUNBOOK.md) and the
+[tester guide](alpha/TESTER_GUIDE.md).
+
 ## In the app (Alpha Foundations)
 
 - **Save export, import and backups** (Settings → Your save). Imports are checked,
