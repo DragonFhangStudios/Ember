@@ -73,35 +73,69 @@ entirely.
 ## 3. Protect every hostname with Cloudflare Access
 
 > **Critical:** the Pages setting "Enable access policy" protects **preview URLs
-> only**. It does **not** protect the production `<project>.pages.dev` address
-> or a custom domain. You need an Access application that covers both.
-> See Cloudflare's Pages "Known issues" and "Preview deployments" docs.
+> only** (for example `373f31e2.<project>.pages.dev`). It does **not** protect the
+> production `<project>.pages.dev` address or a custom domain. By default it also
+> lets in your Cloudflare account, not a list of testers.
 
-1. **Zero Trust** dashboard → **Settings → Authentication → Login methods**:
-   make sure **One-time PIN** is enabled (it's on by default). Testers type their
-   email, receive a code, and enter it. No password, no Google account.
-2. **Access → Applications → Add an application → Self-hosted.**
-   - Name: `Ember alpha`.
-   - Application domains (add both):
-     - `<project>.pages.dev` (production)
-     - `*.<project>.pages.dev` (every preview and branch alias, such as
-       `abc123.<project>.pages.dev`)
-   - Session duration: **1 month** (720h) is recommended. Each sign-in needs the
-     email code, which is awkward from a Home Screen app; a long session means
-     testers rarely see it. Shorter is more private but more friction.
-   - Identity providers: One-time PIN only.
-3. Add a policy:
-   - Name: `Alpha testers`. Action: **Allow**.
-   - Include → **Emails**: Andrew's email, Dimitri's email. Nothing else (no
-     "Everyone", no email domains, no "Bypass" rules, no service tokens).
-4. Save. Then in the Pages project → **Settings → General → Access policy**,
-   also enable it, and check that it hasn't created a second, broader policy.
-   In **Access → Applications** you should now see the application(s) covering
-   both the production hostname and the wildcard, each with only the
-   `Alpha testers` allow policy.
-5. **Don't add a custom domain** during the alpha. If one is ever added, it needs
-   its own Access application (same policy) **before** it serves the app, and it
-   must be tested like the others in step 6.
+This follows Cloudflare's documented procedure, "Enable Access on your
+`*.pages.dev` domain", in the Pages **Known issues** page (checked against the
+docs source on 2026-10-23). Dashboard labels change; if a step doesn't match,
+follow the current Known issues page and keep the end state described in 3c.
+
+### 3a. One-time PIN sign-in
+
+**Zero Trust → Settings → Authentication → Login methods:** make sure
+**One-time PIN** is enabled (it's on by default). Testers type their email,
+receive a code, and enter it. No password, no Google account.
+
+### 3b. Cloudflare's procedure: production first, then previews again
+
+1. Cloudflare dashboard → **Workers & Pages** → select the project.
+2. **Settings → Enable access policy.** This creates an Access application for
+   the previews (`*.<project>.pages.dev`).
+3. Select **Manage** on that Access policy.
+4. Under **Access → Applications**, select the project's application →
+   **Configure**.
+5. Under **Public hostname**, in the **Subdomain** field, **delete the wildcard
+   (`*`)** and **Save**. (If saving fails, change the **Application name**, e.g.
+   to `Ember alpha (production)`.) This application now protects the
+   **production** `<project>.pages.dev` address.
+6. Back in the Pages project → **Settings → General** → select **Enable access
+   policy** again. This creates a **new** application for the previews.
+7. In **Access → Applications**, confirm there are now **two** applications:
+   one for `<project>.pages.dev` and one for `*.<project>.pages.dev`.
+
+### 3c. Restrict both applications to the two testers
+
+The applications created above start with Cloudflare's default rule (your
+Cloudflare account). Edit **each** of the two applications:
+
+- **Policies:** exactly one policy, `Alpha testers`, action **Allow**, with
+  **Include → Emails:** Andrew's email and Dimitri's email. Remove any other
+  include rules (account members, "Everyone", email domains), and add no
+  "Bypass" or "Service Auth" policies and no service tokens.
+- **Login methods:** One-time PIN.
+- **Session duration:** **1 month** is recommended. Each sign-in needs an
+  emailed code, which is awkward from a Home Screen app; a long session means
+  testers rarely see it. Shorter is more private but adds friction.
+
+End state to check before going on:
+
+| Access application | Hostname it covers | Policy |
+| --- | --- | --- |
+| Production | `<project>.pages.dev` | Allow: the two tester emails only |
+| Previews | `*.<project>.pages.dev` | Allow: the two tester emails only |
+
+### 3d. Custom domains (avoid during the alpha)
+
+Don't add a custom domain. If one is ever added, Cloudflare's procedure
+continues: **Zero Trust → Access controls → Applications → Create new
+application → Self-hosted and private → Add public hostname** (the custom
+domain), with the same `Alpha testers` policy, **before** it serves the app.
+Without it, the sign-in page appears but doesn't work for that domain. Note
+Cloudflare's other known issues: a custom domain can't be added while an
+Access policy is already on it, and certificate validation needs
+`/.well-known/acme-challenge/*` reachable. Test every custom domain in step 6.
 
 Testers should be invited by you, personally, after step 6 passes. Access sends
 codes only to allowlisted emails; nobody is invited automatically.
@@ -119,7 +153,7 @@ npx wrangler@4 pages deploy dist \
 ```
 
 - `--branch=main` makes it the production deployment. Any other branch name
-  creates a preview URL (still covered by the wildcard in step 3).
+  creates a preview URL (covered by the preview Access application from step 3).
 - `--commit-hash` records the SHA in the Pages dashboard. It's only a label; the
   build hash inside the app (step 7) is the real check.
 - Wrangler's version changes; `wrangler@4` was current when this was written.
@@ -134,41 +168,44 @@ be a separate, reviewed change.
 
 ## 6. Verify there's no public way in (required before inviting anyone)
 
-Run these from a computer **not** signed in to Access (or a private window with
-`curl`, which never has the cookie). Every request must be **redirected to the
-Access sign-in** (HTTP 302 to `<team>.cloudflareaccess.com`) or refused (401/403).
-**Not one may return 200 with Ember's content.**
+Run this from the clean build folder (it reads the asset names from
+`dist/index.html`), with `curl`, which never has a sign-in cookie. List every
+hostname that can reach the project: production, the deployment URL printed by
+`wrangler pages deploy` (`https://<hash>.<project>.pages.dev`), the branch alias
+(`https://main.<project>.pages.dev`), any other preview you've created, and any
+custom domain.
 
 ```sh
-BASE=https://<project>.pages.dev
+HOSTS="https://<project>.pages.dev https://<hash>.<project>.pages.dev https://main.<project>.pages.dev"
 JS=$(grep -o '/assets/index-[^"]*\.js' dist/index.html)
 CSS=$(grep -o '/assets/index-[^"]*\.css' dist/index.html)
-for path in / /index.html "$JS" "$CSS" /manifest.webmanifest /favicon.svg \
-            /icons/icon-192.png /icons/apple-touch-icon.png /does-not-exist; do
-  printf '%-45s ' "$path"
-  curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$BASE$path"
+FONT=$(ls dist/assets/*.woff2 | head -1 | sed 's|^dist||')
+for host in $HOSTS; do
+  for path in / /index.html "$JS" "$CSS" "$FONT" /manifest.webmanifest /favicon.svg \
+              /icons/icon-192.png /icons/icon-512.png /icons/apple-touch-icon.png /does-not-exist; do
+    printf '%-60s ' "$host$path"
+    curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' "$host$path"
+  done
 done
 ```
 
-Repeat with:
-
-- the deployment's own URL shown after `wrangler pages deploy` (it looks like
-  `https://<hash>.<project>.pages.dev`);
-- the branch alias, e.g. `https://main.<project>.pages.dev`;
-- any custom domain, if one exists.
+**Pass:** every line is a redirect to the Access sign-in (`302` to
+`<team>.cloudflareaccess.com`) or refused (`401`/`403`). **Fail:** any `200`.
+One `200` means a hostname or file is public: stop, fix the Access
+applications (step 3), and run it again.
 
 Then in a browser:
 
 1. Private window → `https://<project>.pages.dev` → the Cloudflare sign-in
-   appears, not Ember.
+   appears, not Ember. Repeat for a preview URL.
 2. Enter an email that **isn't** on the allowlist → no code arrives, and no way
    in.
 3. Enter an allowlisted email → code arrives → Ember opens.
 4. Settings → bottom line shows `Ember version <SHORT_SHA>` matching the
    approved commit.
 
-Record the results (date, URLs tested, status codes) in the alpha issue. **Only
-after every check passes is the alpha "live and private."**
+Record the results (date, hostnames tested, status codes) in the alpha issue.
+**Only after every check passes is the alpha "live and private."**
 
 ## 7. Verify the deployed commit
 

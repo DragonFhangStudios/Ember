@@ -91,14 +91,25 @@ PASS = verified here. BLOCKED = needs a founder action. FAIL = unresolved.
 | Type-check | PASS | `tsc --noEmit` clean |
 | Unit tests | PASS | 377/377 (18 files) |
 | Production build | PASS | Built from the committed head; version embedded |
-| Full browser suite (dev server) | PASS | 279/279 on `384e49d` (chromium 390px, chromium-360 layout, emulated Pixel 7). One earlier run had a single theme-test failure while a file was being edited mid-run; it didn't reproduce in 20 isolated runs, 192 runs under load, or the final run |
-| Full browser suite against the **production build** | PASS | 265 of 279 passed; the other 14 are the 7 keyboard Easter-egg tests × 2 projects, which force the 1-in-N chance with a test-only switch that production builds remove by design (confirmed absent from the bundle). No other failures |
+| Full browser suite (dev server) | PASS | 279/279 on the final release-candidate code (chromium 390px, chromium-360 layout, emulated Pixel 7). One earlier run had a single theme-test failure while a file was being edited mid-run; it didn't reproduce in 20 isolated runs, 192 runs under load, or later full runs |
+| Browser suite against the **production build** | PASS (255 run) | **255 of 255 passed** of the 255 production-compatible tests. **24 tests (12 per project) are not run against production and are not counted as production passes:** the 11 keyboard Easter-egg tests and "tapping Ember gets a musing…", which rely on a test-only Easter egg switch that production builds remove by design (confirmed absent from the bundle). All 24 still run and pass on the dev server (row above, and CI). Command: `scripts/e2e-production.sh` (see below) |
 | Save integrity (invalid import, interrupted import, reset, restore, backups, cross-tab) | PASS | Included in both runs |
 | 360px, 390px, emulated Pixel 7 | PASS | Included |
 | Dark mode, reduced motion, contrast (WCAG AA) | PASS | Included |
 | Broken assets, unexpected network requests | PASS | Local-only suite: every image and both fonts load with outside hosts blocked |
 | Screenshots of main flows (production build, Pixel 7, light and dark) | PASS | Attached to the PR report |
 | Real iPhone and Android | BLOCKED — FOUNDER ACTION | Chromium emulation is not Safari or a real phone. Run the physical-device checklist in [Alpha readiness](../ALPHA_READINESS.md) after hosting |
+
+#### Production smoke test
+
+```sh
+scripts/e2e-production.sh            # add Playwright options if wanted, e.g. --project=pixel-7
+```
+
+It builds `dist/`, serves it with `vite preview` on the test port, checks that the
+production build (not the dev server) is what's being served, runs every
+production-compatible browser test, and stops the server. It changes no CI,
+test configuration or app behavior. Run it without `CI=1`.
 
 ### Hosting, access and launch
 
