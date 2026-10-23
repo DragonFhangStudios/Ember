@@ -15,7 +15,10 @@ const themeColor = (page: Page) => page.locator('meta[name="theme-color"]').getA
 test('the manifest is linked, valid, and every icon loads at its declared size', async ({ page }) => {
   await openApp(page);
   await waitForApp(page);
-  const href = await page.locator('link[rel="manifest"]').getAttribute('href');
+  const link = page.locator('link[rel="manifest"]');
+  // Fetched with cookies, so it still loads behind the alpha's sign-in gate.
+  await expect(link).toHaveAttribute('crossorigin', 'use-credentials');
+  const href = await link.getAttribute('href');
   const response = await page.request.get(href!);
   expect(response.ok()).toBe(true);
   const manifest = await response.json();

@@ -74,6 +74,7 @@ function Content({ onClose }: { onClose: () => void }) {
       <h3 className={heading}>Sent over the network</h3>
       <ul className="list-disc pl-5 text-sm text-fg-muted space-y-1">
         <li>Only loading Ember itself: your browser downloads the app's files from wherever it's hosted, and that host can see your IP address, as with any website.</li>
+        <li>If this copy of Ember is behind a sign-in page (as in a private test), the sign-in is run by the host, which sees the email address you use. Ember itself never receives it.</li>
         <li>Fonts and images are part of the app, so nothing is fetched from other sites.</li>
         <li>Links you choose to open (like a Daily Dragon Fact's source) go to those sites.</li>
         <li>Exported save files go only where you save them. They include your check-ins and notes, so keep them private.</li>

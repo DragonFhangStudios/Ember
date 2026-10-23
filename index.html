@@ -6,7 +6,9 @@
     <title>Ember Wellness</title>
     <meta name="description" content="A gentle wellness companion. If you can take care of Ember, you can learn to take care of yourself." />
     <!-- Installable as a home-screen app (#32). Icons are temporary, not final art. -->
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- With cookies: behind a sign-in gate (the private alpha), a manifest fetched
+         without them would get the sign-in page, and install would lose its icon. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Ember" />
