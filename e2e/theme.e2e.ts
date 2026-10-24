@@ -183,7 +183,8 @@ test('before any save loads, a new player gets the system theme and a returning 
       for (const [key, value] of Object.entries(items)) localStorage.setItem(key, String(value));
     }, storage);
     const page = await context.newPage();
-    await page.route('**/src/main.tsx', route => route.abort()); // only the startup script runs
+    // Only the startup script runs: block the app (the dev entry, or the production bundle).
+    await page.route(/\/src\/main\.tsx|\/assets\/index-[^/]*\.js/, route => route.abort());
     await page.goto('/');
     const dark = await page.evaluate(() => document.documentElement.classList.contains('dark'));
     expect(dark, label).toBe(expectDark);

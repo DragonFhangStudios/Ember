@@ -32,7 +32,8 @@ export function FocusTimer({ timer, rewardsLeft, onStart, onPause, onReset }: Fo
       </div>
 
       <div className="relative w-48 h-48 mb-8">
-        <svg className="w-full h-full transform -rotate-90">
+        {/* Decorative: the time itself is the text below. */}
+        <svg aria-hidden="true" className="w-full h-full transform -rotate-90">
           <circle
             cx="96"
             cy="96"

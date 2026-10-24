@@ -35,6 +35,7 @@ test('explains plainly what is kept on the device and what is sent', async ({ pa
   await expect(privacy.getByRole('heading', { name: 'Kept on this device' })).toBeVisible();
   await expect(privacy.getByRole('heading', { name: 'Sent over the network' })).toBeVisible();
   await expect(privacy).toContainText('nothing is fetched from other sites');
+  await expect(privacy).toContainText('the sign-in is run by the host, which sees the email address you use. Ember itself never receives it.');
   await expect(privacy).toContainText("isn't medical advice");
   // The medical disclaimer itself is still on Home.
   await page.keyboard.press('Escape');
