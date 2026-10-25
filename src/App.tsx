@@ -13,6 +13,7 @@ import {
   CustomQuestDetails,
   customQuestAllowanceLeft,
   dailyFor,
+  nextStepReward,
   dayKey,
   deleteCustomQuest,
   editCustomQuest,
@@ -819,7 +820,7 @@ export default function App() {
                   quest={quest} 
                   onToggle={handleQuestTap}
                   rewardNoteId={CUSTOM_ENERGY_NOTE_ID}
-                  customAllowanceLeft={customLeft}
+                  next={nextStepReward(state, quest, new Date(nowMs))}
                   onOptions={quest.isCustom || canCorrectQuest(state, quest, new Date(nowMs)) ? id => setQuestOptions({ id, view: 'menu' }) : undefined}
                   customQuestTypes={state.customQuestTypes}
                 />

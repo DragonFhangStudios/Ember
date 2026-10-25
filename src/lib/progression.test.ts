@@ -4,6 +4,9 @@ import {
   DAILY_LIMITS,
   REWARDS,
   advanceQuest,
+  correctQuest,
+  editCustomQuest,
+  nextStepReward,
   completeFocusSession,
   createInitialState,
   customQuestAllowanceLeft,
@@ -239,6 +242,50 @@ describe('daily reward limits', () => {
     state = { ...state, daily: { ...state.daily, customQuestEnergy: 55, customQuestGrowth: 9 } }; // over the limit (an older save)
     expect(customQuestAllowanceLeft(state, day(20))).toEqual({ energy: 0, bond: 0 });
     expect(customQuestAllowanceLeft(state, day(21))).toEqual({ energy: DAILY_LIMITS.customQuestEnergy, bond: DAILY_LIMITS.customQuestGrowth });
+  });
+
+  it('what the next tap would pay is exactly what it pays: after completing, correcting, editing, and using up allowances', () => {
+    let state = hatched(30, day(20, 9));
+    const at = day(20, 12);
+    state = { ...state, quests: [...state.quests, { id: 'c1', title: 'Water plants', description: '', type: 'custom', completed: false, points: 10, isDaily: true, isCustom: true, progress: 0, target: 1 }] };
+    const checks: string[] = [];
+    const tap = (id: string, label: string) => {
+      const quest = state.quests.find(q => q.id === id)!;
+      const promised = nextStepReward(state, quest, at);
+      const before = { energy: state.energy, bond: bondTotal(state.bond), scales: state.goldenScales };
+      state = advanceQuest(state, id, at).state;
+      const got = { energy: state.energy - before.energy, growth: Math.round((bondTotal(state.bond) - before.bond) * 1e6) / 1e6, scales: state.goldenScales - before.scales };
+      expect(got, label).toEqual({ energy: promised.energy, growth: promised.growth, scales: promised.scales });
+      checks.push(label);
+      return promised;
+    };
+    const correct = (id: string) => {
+      const quest = state.quests.find(q => q.id === id)!;
+      state = correctQuest(state, id, quest.progress, at).state;
+    };
+
+    expect(tap('c1', 'custom: first completion')).toMatchObject({ energy: 10, alreadyRewarded: false, countsForStreak: true });
+    correct('c1');
+    expect(nextStepReward(state, state.quests.find(q => q.id === 'c1')!, at)).toMatchObject({ energy: 0, growth: 0, alreadyRewarded: true, countsForStreak: false });
+    tap('c1', 'custom: redone after a correction');
+    state = editCustomQuest(state, 'c1', { title: 'Water plants', description: '', type: 'custom', target: 3 }, at).state;
+    tap('c1', 'custom: after raising the target');
+    tap('q1', 'built-in: first completion');
+    correct('q1');
+    expect(tap('q1', 'built-in: redone after a correction')).toMatchObject({ alreadyRewarded: true });
+    tap('q2', 'built-in Vitality: scales bonus');
+    for (let i = 0; i < 5; i++) {
+      const id = `c${i + 2}`;
+      state = { ...state, quests: [...state.quests, { id, title: id, description: '', type: 'custom', completed: false, points: 10, isDaily: true, isCustom: true, progress: 0, target: 1 }] };
+      tap(id, `custom ${id}: shared allowance`);
+    }
+    const spent = nextStepReward(state, { ...state.quests.find(q => q.id === 'c1')!, progress: 0, completed: false }, at);
+    expect(spent, 'allowance used up: nothing to promise, and not because of the ledger').toMatchObject({ energy: 0, growth: 0, alreadyRewarded: false });
+    expect(checks).toHaveLength(11);
+
+    // A new day: quests reset and pay again, and completing one counts the day.
+    expect(nextStepReward(state, state.quests.find(q => q.id === 'q1')!, day(21))).toMatchObject({ energy: 10, alreadyRewarded: false, countsForStreak: true });
+    expect(nextStepReward(state, state.quests.find(q => q.id === 'c1')!, day(21)), 'one step of three: no streak yet').toMatchObject({ energy: 10, countsForStreak: false });
   });
 
   it('limits survive a save/load round-trip (refresh)', () => {

@@ -3,6 +3,7 @@ import * as LucideIcons from 'lucide-react';
 import { CheckCircle2, Circle, MoreVertical, Pill, Timer, Sun, Heart, Sparkles } from 'lucide-react';
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
+import type { NextStepReward } from '../lib/progression';
 import { chipClasses } from '../lib/questColors';
 
 interface QuestItemProps {
@@ -12,8 +13,8 @@ interface QuestItemProps {
   onOptions?: (id: string) => void;
   /** For custom quests: the id of the note on their shared daily energy limit. */
   rewardNoteId?: string;
-  /** For custom quests: what custom quests can still earn today (all together). */
-  customAllowanceLeft?: { energy: number; bond: number };
+  /** What tapping this quest once more would pay right now (see nextStepReward). */
+  next?: NextStepReward;
   customQuestTypes?: CustomQuestType[];
   key?: string | number;
 }
@@ -34,7 +35,7 @@ const TYPE_COLORS: Record<string, string> = {
   custom: 'text-purple-500 bg-purple-50',
 };
 
-export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, customAllowanceLeft, customQuestTypes = [] }: QuestItemProps) {
+export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, next, customQuestTypes = [] }: QuestItemProps) {
   const customType = customQuestTypes.find(t => t.id === quest.type);
   
   const IconComponent = customType 
@@ -42,10 +43,16 @@ export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, customAllo
     : TYPE_ICONS[quest.type] || Sparkles;
 
   const perStepEnergy = Math.round(quest.points / quest.target);
-  // A custom quest still to do shows only what a step can still earn today (custom quests share
-  // one allowance). A done one shows no amount: it may have been done after the allowance ran out.
-  const earnable = Math.min(perStepEnergy, customAllowanceLeft?.energy ?? perStepEnergy);
+  // A quest still to do promises only what its next step really pays (the same calculation as the
+  // tap itself). A done custom quest shows no amount: it may have been done after the allowance ran out.
   const showReward = !(quest.isCustom && quest.completed);
+  const rewardWord = quest.completed || !next ? null
+    : next.alreadyRewarded ? 'Already rewarded'
+    : !quest.isCustom || next.energy > 0 ? null
+    : next.growth > 0 ? 'Bond only'
+    : next.countsForStreak ? 'Streak only'
+    : 'Daily max reached';
+  const energyShown = quest.isCustom ? (quest.completed || !next ? perStepEnergy : next.energy) : quest.points;
 
   const colorClass = customType 
     ? customType.color 
@@ -105,17 +112,17 @@ export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, customAllo
         <span className="flex flex-col items-end gap-1 flex-shrink-0">
           {showReward && (
             <span className="flex items-center gap-1 text-gold-fg font-bold text-sm" data-reward>
-              {!quest.isCustom ? (
-                <span>+{quest.points}</span>
-              ) : earnable > 0 ? (
-                <span>
-                  +{earnable}
-                  {isMultiStep && earnable === perStepEnergy && <span className="text-xs">/step</span>}
-                </span>
+              {rewardWord ? (
+                <span className="text-xs">{rewardWord}</span>
               ) : (
-                <span className="text-xs">{(customAllowanceLeft?.bond ?? 0) > 0 ? 'Bond & streak' : 'Streak only'}</span>
+                <>
+                  <span>
+                    +{energyShown}
+                    {quest.isCustom && isMultiStep && energyShown === perStepEnergy && <span className="text-xs">/step</span>}
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-dragon-gold" />
+                </>
               )}
-              {(!quest.isCustom || earnable > 0) && <span className="w-2 h-2 rounded-full bg-dragon-gold" />}
             </span>
           )}
           {quest.completed ? (
