@@ -132,10 +132,16 @@ export function freshDaily(date: string): DailyRewards {
   };
 }
 
-/** Today's reward counters, treating counters from another day as empty. */
+/**
+ * Today's reward counters, treating counters from an earlier day as empty. If
+ * the clock moved backwards (rollOverDay keeps the save on its later day), the
+ * save's own day still applies, so changing the clock never refills a limit.
+ */
 export function dailyFor(state: UserState, now: Date): DailyRewards {
   const today = dayKey(now);
-  return state.daily?.date === today ? state.daily : freshDaily(today);
+  if (state.daily?.date === today) return state.daily;
+  if (state.daily?.date === state.lastLogin && daysBetween(state.lastLogin, now) < 0) return state.daily;
+  return freshDaily(today);
 }
 
 const NO_REWARD: QuestReward = { energy: 0, growth: 0, scales: 0 };

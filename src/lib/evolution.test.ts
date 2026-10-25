@@ -321,7 +321,8 @@ describe('migrating saves from before active days (v5 → v6)', () => {
   });
 
   it('progress continues normally after migrating', () => {
-    let state = reload(legacySave({ stage: 'Drake', growthProgress: 80 }), at(1, 8));
+    // Last opened the day before (the fixture's default date is later, which would be a clock moving backwards).
+    let state = reload(legacySave({ stage: 'Drake', growthProgress: 80, lastLogin: dayKey(new Date(2026, 8, 30)) }), at(1, 8));
     for (let d = 1; d <= 26; d++) state = checkIn(state, at(d));
     expect(activeDaysOf(state)).toBe(50);
     expect(state.stage).toBe(DragonStage.ANCIENT);

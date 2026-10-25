@@ -194,6 +194,38 @@ describe('daily reward limits', () => {
     expect(bondTotal(state.bond)).toBe(30 + 2 * REWARDS.checkIn.growth);
   });
 
+  it("a clock that moves backwards across midnight (and forward again) never refills today's allowances", () => {
+    // Alpha feedback: flying west, or setting the clock back, made the counters look like a new day.
+    const late = day(21, 0, 30);
+    const earlier = day(20, 23, 30); // the previous calendar day, an hour earlier
+    let state = hatched(30, late);
+    let n = 0;
+    const completeNewCustomQuest = (at: Date) => {
+      const id = `custom_clock_${++n}`;
+      state = { ...state, quests: [...state.quests, { id, title: id, description: '', type: 'custom', completed: false, points: 10, isDaily: true, isCustom: true, progress: 0, target: 1 }] };
+      state = advanceQuest(state, id, at).state;
+    };
+    const everyLimit = (at: Date) => {
+      for (let i = 0; i < 6; i++) completeNewCustomQuest(at);
+      for (let i = 0; i < 5; i++) state = feedDragon(state, at).state;
+      for (let i = 0; i < 5; i++) state = completeFocusSession(state, at).state;
+      state = logCheckIn(state, 3, 3, at).state;
+    };
+    everyLimit(late);
+    const used = { energy: state.energy, bond: bondTotal(state.bond) };
+    expect(state.daily).toMatchObject({ customQuestEnergy: DAILY_LIMITS.customQuestEnergy, customQuestGrowth: DAILY_LIMITS.customQuestGrowth, feeds: DAILY_LIMITS.feeds, focusRewards: DAILY_LIMITS.focusRewards, checkInRewarded: true });
+
+    everyLimit(earlier); // clock moved back to the previous day
+    everyLimit(day(21, 1)); // and forward again, still the same real day
+    expect({ energy: state.energy, bond: bondTotal(state.bond) }, 'nothing more was earned').toEqual(used);
+    expect(state.lastLogin).toBe(dayKey(late));
+    expect(state.daily.date).toBe(dayKey(late));
+
+    // The real next day still brings fresh allowances.
+    completeNewCustomQuest(day(22));
+    expect(state.daily).toMatchObject({ date: dayKey(day(22)), customQuestEnergy: 10 });
+  });
+
   it('limits survive a save/load round-trip (refresh)', () => {
     let state = hatched(30);
     for (let i = 0; i < DAILY_LIMITS.feeds; i++) state = feedDragon(state, day(20, 12, i)).state;
