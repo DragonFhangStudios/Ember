@@ -380,6 +380,72 @@ describe("once-a-day care can't be repeated by changing the device clock (#42)",
   });
 });
 
+describe('once-a-day care across time zones (#42)', () => {
+  /** Runs `fn` with the device in time zone `tz` (Node applies a runtime TZ change). */
+  const inZone = <T,>(tz: string, fn: () => T): T => {
+    const before = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+      return fn();
+    } finally {
+      if (before === undefined) delete process.env.TZ;
+      else process.env.TZ = before;
+    }
+  };
+  const NY = 'America/New_York';
+  const LA = 'America/Los_Angeles';
+  const utc = (d: number, h: number, m = 0) => new Date(Date.UTC(2026, 9, d, h, m)); // Oct 2026: NY = UTC-4, LA = UTC-7
+  const reload = (state: UserState, now: Date) => migrateState(JSON.parse(JSON.stringify(state)), now);
+  const kinds = [
+    { name: 'petting', kind: 'pet', act: petDragon, start: (now: Date) => hatched(30, now) },
+    { name: 'cleaning the egg', kind: 'pet', act: petDragon, start: (now: Date) => createInitialState(now) },
+    { name: 'incubating', kind: 'incubate', act: feedDragon, start: (now: Date) => createInitialState(now) },
+  ] as const;
+  /** Cares in `zone` at each time (reloading the save first); returns what paid and whether the button agreed. */
+  const careIn = (kind: (typeof kinds)[number], state: UserState, steps: [string, Date][]) => {
+    const paid: boolean[] = [];
+    for (const [zone, now] of steps) {
+      state = inZone(zone, () => {
+        const loaded = reload(state, now);
+        const done = careDoneToday(loaded, kind.kind, now);
+        const after = kind.act(loaded, now).state;
+        const gotPaid = bondTotal(after.bond) > bondTotal(loaded.bond);
+        expect(done, `${kind.name}: button at ${now.toISOString()} in ${zone}`).toBe(!gotPaid);
+        paid.push(gotPaid);
+        return after;
+      });
+    }
+    return paid;
+  };
+  const caredInNY = (kind: (typeof kinds)[number], now: Date) => inZone(NY, () => kind.act(kind.start(now), now).state);
+
+  for (const kind of kinds) {
+    it(`${kind.name}: cared just after midnight in New York, reopened the same evening-before in Los Angeles: no second reward`, () => {
+      // Oct 25 00:30 in New York is Oct 24 21:30 in Los Angeles; the save is on Oct 25.
+      const cared = caredInNY(kind, utc(25, 4, 30));
+      expect(careIn(kind, cared, [[LA, utc(25, 4, 45)], [LA, utc(25, 6, 59)]])).toEqual([false, false]);
+    });
+
+    // Known gaps (pending a Council decision): a stored time can't tell which day it
+    // counted for in another time zone. Fixing these needs the care day itself saved
+    // (see #42). `it.fails` keeps them visible; it starts failing once they're fixed.
+    it.fails(`${kind.name} (known gap): cared on Oct 25 in New York, again later on Oct 25 in Los Angeles: no second reward`, () => {
+      const cared = caredInNY(kind, utc(25, 4, 30));
+      expect(careIn(kind, cared, [[LA, utc(25, 17)], [LA, utc(26, 6)]])).toEqual([false, false]);
+    });
+
+    it(`${kind.name}: a real new day still pays after travelling west`, () => {
+      const west = caredInNY(kind, utc(25, 13)); // Oct 25 09:00 New York
+      expect(careIn(kind, west, [[LA, utc(26, 16)]])).toEqual([true]); // Oct 26 09:00 Los Angeles
+    });
+
+    it.fails(`${kind.name} (known gap): cared late in Los Angeles, the next morning in New York still pays`, () => {
+      const east = inZone(LA, () => kind.act(kind.start(utc(26, 5)), utc(26, 5)).state); // Oct 25 22:00 Los Angeles
+      expect(careIn(kind, east, [[NY, utc(26, 12)]])).toEqual([true]); // Oct 26 08:00 New York
+    });
+  }
+});
+
 describe('quests', () => {
   it('rewards multi-step quests per step and cannot be over-completed', () => {
     let state = hatched(30);

@@ -78,3 +78,31 @@ test('a new day without care, the clock back to the last care day, then forward 
   await at(page, later(4, 9, 0)); // day C
   expect(await careBoth(page), "day C's own care").toEqual([2, 5]);
 });
+
+test('a save cared for in New York and reopened in Los Angeles pays no second time, and a real new day still pays', async ({ browser }, testInfo) => {
+  test.slow();
+  const { baseURL, viewport } = testInfo.project.use;
+  // Oct 25 00:30 in New York is Oct 24 21:30 in Los Angeles; the save's day is Oct 25.
+  const ny = await browser.newContext({ baseURL, viewport, timezoneId: 'America/New_York' });
+  const nyPage = await ny.newPage();
+  await nyPage.clock.setFixedTime(new Date('2026-10-25T04:30:00Z'));
+  await nyPage.goto('/');
+  await waitForApp(nyPage);
+  expect(await careBoth(nyPage), 'cared for in New York').toEqual([2, 5]);
+  const saveFile = await ny.storageState({ indexedDB: true });
+  await ny.close();
+
+  const la = await browser.newContext({ baseURL, viewport, timezoneId: 'America/Los_Angeles', storageState: saveFile });
+  const page = await la.newPage();
+  await page.clock.setFixedTime(new Date('2026-10-25T04:45:00Z'));
+  await page.goto('/');
+  await waitForApp(page);
+  expect((await saved(page)).lastLogin, 'the same save, still on Oct 25').toMatch(/Oct 25 2026/);
+  await expect(page.getByRole('button', { name: 'Clean & Hydrate', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Incubate', exact: true })).toBeDisabled();
+  expect(await careBoth(page), 'reopened in Los Angeles').toEqual([0, 0]);
+
+  await at(page, new Date('2026-10-26T16:00:00Z')); // Oct 26 09:00 in Los Angeles
+  expect(await careBoth(page), 'a real new day').toEqual([2, 5]);
+  await la.close();
+});
