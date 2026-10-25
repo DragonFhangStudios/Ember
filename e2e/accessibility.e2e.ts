@@ -41,7 +41,8 @@ test('every screen and dialog names its controls and images, under the page land
   await expect(page.getByRole('banner')).toHaveCount(1);
 
   await expectNamed(page, 'Home', 'Daily Quests');
-  for (const [tab, heading] of [['Focus', 'Focus Quest'], ['Check-in', 'Daily Check-in'], ['Shop', 'Dragon Wardrobe']] as const) {
+  // The Shop is hidden for the alpha; wardrobe.e2e.ts covers it when switched on.
+  for (const [tab, heading] of [['Focus', 'Focus Quest'], ['Check-in', 'Daily Check-in']] as const) {
     await goToTab(page, tab);
     await expectNamed(page, tab, heading);
   }
@@ -92,7 +93,7 @@ test('Tab reaches the header, every quest and the navigation, landing only on vi
     reached.add(focused.name);
   }
   const all = [...reached].join(' | ');
-  for (const name of ['Settings', 'Insights', 'Milestones', 'Morning Routine', 'Hydration Goal', 'Options for Stretch', 'Home', 'Focus', 'Check-in', 'Shop']) {
+  for (const name of ['Settings', 'Insights', 'Milestones', 'Morning Routine', 'Hydration Goal', 'Options for Stretch', 'Home', 'Focus', 'Check-in']) {
     expect(all, `Tab reaches ${name}`).toContain(name);
   }
 });

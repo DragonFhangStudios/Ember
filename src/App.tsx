@@ -40,6 +40,7 @@ import { FocusTimer } from './components/FocusTimer';
 import { SymptomCheckIn } from './components/SymptomCheckIn';
 import { MedicalDisclaimer } from './components/MedicalDisclaimer';
 import { Wardrobe } from './components/Wardrobe';
+import { wardrobeEnabled } from './lib/features';
 import { Insights } from './components/Insights';
 import { Badges } from './components/Badges';
 import { CustomQuestForm } from './components/CustomQuestForm';
@@ -462,6 +463,7 @@ export default function App() {
   };
 
   const handleBuyItem = (item: CosmeticItem) => {
+    if (!wardrobeEnabled()) return; // hidden for the alpha: nothing can be bought
     update(current => current.goldenScales < item.price ? current : {
       ...current,
       goldenScales: current.goldenScales - item.price,
@@ -470,6 +472,7 @@ export default function App() {
   };
 
   const handleEquipItem = (item: CosmeticItem) => {
+    if (!wardrobeEnabled()) return; // hidden for the alpha: what's equipped stays as saved
     update(current => {
       const isEquipped = current.equipped[item.category] === item.id;
       return {
@@ -748,7 +751,8 @@ export default function App() {
             isMeditating={isFocusActive}
             isPetted={isPetted}
             isLevelingUp={isLevelingUp}
-            equipped={state.equipped}
+            // Hidden for the alpha: equipped items stay saved, but placeholder art isn't drawn on Ember.
+            equipped={wardrobeEnabled() ? state.equipped : {}}
           />
 
           <BondingActions 
@@ -845,7 +849,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'wardrobe' && (
+          {activeTab === 'wardrobe' && wardrobeEnabled() && (
             <motion.div key="wardrobe" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
               <Wardrobe userState={state} onBuy={handleBuyItem} onEquip={handleEquipItem} />
             </motion.div>
@@ -957,7 +961,9 @@ export default function App() {
           <NavButton active={activeTab === 'dashboard'} onClick={() => selectTab('dashboard')} icon={LayoutDashboard} label="Home" />
           <NavButton active={activeTab === 'focus'} onClick={() => selectTab('focus')} icon={Timer} label="Focus" />
           <NavButton active={activeTab === 'checkin'} onClick={() => selectTab('checkin')} icon={Heart} label="Check-in" />
-          <NavButton active={activeTab === 'wardrobe'} onClick={() => selectTab('wardrobe')} icon={ShoppingBag} label="Shop" />
+          {wardrobeEnabled() && (
+            <NavButton active={activeTab === 'wardrobe'} onClick={() => selectTab('wardrobe')} icon={ShoppingBag} label="Shop" />
+          )}
         </div>
       </nav>
     </div>

@@ -72,12 +72,12 @@ test.beforeEach(async ({ page }) => {
   await waitForApp(page);
 });
 
-/** The heading each tab shows once its content is in. */
-const TAB_HEADINGS = { Home: 'Daily Quests', Focus: 'Focus Quest', 'Check-in': 'Daily Check-in', Shop: 'Dragon Wardrobe' } as const;
+/** The heading each tab shows once its content is in. (The Shop is hidden for the alpha.) */
+const TAB_HEADINGS = { Home: 'Daily Quests', Focus: 'Focus Quest', 'Check-in': 'Daily Check-in' } as const;
 
 test('every screen and dialog fits the phone, with tap targets of at least 44×44px', async ({ page }) => {
   await expectGoodLayout(page, TAB_HEADINGS.Home);
-  for (const tab of ['Focus', 'Check-in', 'Shop'] as const) {
+  for (const tab of ['Focus', 'Check-in'] as const) {
     await goToTab(page, tab);
     await expectGoodLayout(page, TAB_HEADINGS[tab]);
   }
@@ -85,7 +85,7 @@ test('every screen and dialog fits the phone, with tap targets of at least 44×4
   // Log a check-in so the logged view and the Insights charts are covered too.
   await goToTab(page, 'Check-in');
   await page.getByRole('button', { name: 'Log Check-in' }).click();
-  await expectGoodLayout(page, 'Check-in Logged');
+  await expectGoodLayout(page, 'Check-in saved!');
   await page.getByRole('button', { name: 'Insights' }).click();
   await expectGoodLayout(page, 'Health Insights');
   await page.getByRole('button', { name: 'Milestones' }).click();
@@ -146,7 +146,7 @@ test('the bottom navigation never covers content, including on notched phones', 
     const lastContent = await box(page.locator('main > *').last());
     expect(lastContent.y + lastContent.height, 'end of the page clears the nav').toBeLessThanOrEqual(navBox.y);
 
-    for (const name of ['Home', 'Focus', 'Check-in', 'Shop']) {
+    for (const name of ['Home', 'Focus', 'Check-in']) {
       const button = await box(nav(page).getByRole('button', { name, exact: true }));
       expect(button.y + button.height, `${name} clears the home indicator`).toBeLessThanOrEqual(viewportHeight - (insets?.bottom ?? 0));
     }

@@ -41,17 +41,18 @@ async function auditMode(page: Page) {
 /** Visits every screen and dialog, checking each. */
 async function expectAllScreensReadable(page: Page, theme: string) {
   await expectReadable(page, `${theme} Home`);
-  for (const [tab, heading] of [['Focus', 'Focus Quest'], ['Check-in', 'Daily Check-in'], ['Shop', 'Dragon Wardrobe']] as const) {
+  // The Shop is hidden for the alpha; wardrobe.e2e.ts checks its contrast when switched on.
+  for (const [tab, heading] of [['Focus', 'Focus Quest'], ['Check-in', 'Daily Check-in']] as const) {
     await goToTab(page, tab);
     await expect(page.getByRole('heading', { name: heading })).toBeVisible();
     await expectReadable(page, `${theme} ${tab}`);
   }
   await goToTab(page, 'Check-in');
   await page.getByRole('button', { name: 'Log Check-in' }).click();
-  await expect(page.getByRole('heading', { name: 'Check-in Logged' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Check-in saved!' })).toBeVisible();
   // Audit with the message toast showing too (it shows only for a few seconds).
   await expect(page.getByRole('status')).toContainText('Today counts');
-  await expectReadable(page, `${theme} Check-in Logged`);
+  await expectReadable(page, `${theme} Check-in saved`);
   await page.getByRole('button', { name: 'Insights' }).click();
   await expect(page.getByRole('heading', { name: 'Health Insights' })).toBeVisible();
   // The charts draw their axis labels a moment after the heading appears.

@@ -452,7 +452,9 @@ test.describe('check-in notes', () => {
   test('a check-in without a note works as before', async ({ page }) => {
     await goToTab(page, 'Check-in');
     await page.getByRole('button', { name: 'Log Check-in' }).click();
-    await expect(page.getByRole('heading', { name: 'Check-in Logged' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Check-in saved!' })).toBeVisible();
+    await expect(page.getByText("Thanks for taking a moment to see how you're feeling today. ❤️")).toBeVisible();
+    await expect(page.getByText(/doctor/)).toHaveCount(0);
     const s = await saved(page);
     expect(s.symptomLogs[0]).not.toHaveProperty('notes');
     expect(s.energy).toBe(55);
