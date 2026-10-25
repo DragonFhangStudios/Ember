@@ -522,6 +522,15 @@ export function rollOverDay(state: UserState, now: Date): UserState {
   };
 }
 
+/** What custom quests can still earn today, together (shown to the player; never negative). */
+export function customQuestAllowanceLeft(state: UserState, now: Date): { energy: number; bond: number } {
+  const daily = dailyFor(state, now);
+  return {
+    energy: Math.max(0, DAILY_LIMITS.customQuestEnergy - daily.customQuestEnergy),
+    bond: roundGrowth(Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth)),
+  };
+}
+
 /**
  * One step (or more) on a quest. Each step pays only what goes beyond what the
  * quest has already been worth today (the daily ledger), so redoing a

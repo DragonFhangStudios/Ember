@@ -150,21 +150,52 @@ test.describe('custom quest rewards on screen', () => {
 
   test('show energy per step and the shared daily limit, never a total above it', async ({ page }) => {
     await expect(note(page), 'no note without custom quests').toHaveCount(0);
+    // The form explains the shared allowance, with what's left today.
+    await page.getByRole('button', { name: 'Add Custom' }).click();
+    await expect(page.getByLabel(/Target Steps/)).toHaveAccessibleDescription(
+      'Each step earns +10 energy. All custom quests share one daily allowance: up to 40 energy and 4 Bond a day, together. After that, they still count for your streak. Left today: 40 energy and 4 Bond.',
+    );
+    await page.keyboard.press('Escape');
     await addCustomQuest(page, 'Big one', 6);
     await addCustomQuest(page, 'Small one');
     await expect(quest(page, 'Big one').locator('[data-reward]')).toHaveText('+10/step');
     await expect(quest(page, 'Small one').locator('[data-reward]')).toHaveText('+10');
     await expect(quest(page, 'Big one')).not.toContainText('+60');
     await expect(quest(page, 'Hydration Goal').locator('[data-reward]'), 'built-in quests unchanged').toHaveText('+20');
-    await expect(note(page)).toHaveText('Custom quests: +10 energy per step, up to 40 a day together. 40 left today.');
-    await expect(quest(page, 'Big one')).toHaveAccessibleDescription(/up to 40 a day together/);
-    await expect(quest(page, 'Morning Routine')).not.toHaveAccessibleDescription(/40 a day/);
+    await expect(note(page)).toHaveText(
+      'Custom quests share one allowance: up to 40 energy and 4 Bond a day, all together (+10 energy per step). Today they can still add 40 energy and 4 Bond. The Energy at the top is your total so far.',
+    );
+    await expect(quest(page, 'Big one')).toHaveAccessibleDescription(/up to 40 energy and 4 Bond a day/);
+    await expect(quest(page, 'Morning Routine')).not.toHaveAccessibleDescription(/40 energy/);
 
     await tapTimes(page, 'Big one', 3);
-    await expect(note(page)).toContainText('10 left today.');
-    await tapTimes(page, 'Big one', 1);
-    await expect(note(page)).toContainText("Today's is all earned, and they still count for your streak.");
+    await expect(note(page)).toContainText('Today they can still add 10 energy and 3 Bond.'); // a 6-step quest pays 1/3 Bond a step
+    await tapTimes(page, 'Big one', 1); // energy allowance used; Bond is left
+    await expect(note(page)).toContainText('Today they can still add 2.7 Bond. Their energy for today is all earned.');
+    await expect(quest(page, 'Small one').locator('[data-reward]')).toHaveText('Bond & streak');
     expect((await saved(page)).energy, 'what was shown is what was paid').toBe(90);
+    await tapTimes(page, 'Small one', 1);
+    await addCustomQuest(page, 'Last one');
+    await tapTimes(page, 'Last one', 1);
+    await expect(note(page)).toContainText("Today's is all earned, and they still count for your streak.");
+    // Nothing more to earn today, so nothing is promised; done quests show no amount.
+    await expect(quest(page, 'Big one').locator('[data-reward]')).toHaveText('Streak only');
+    await expect(quest(page, 'Small one').locator('[data-reward]'), 'a done custom quest shows no amount').toHaveCount(0);
+    expect((await saved(page)).energy, 'no energy after the allowance').toBe(90);
+    await page.getByRole('button', { name: 'Add Custom' }).click();
+    await expect(page.getByLabel(/Target Steps/)).toHaveAccessibleDescription(/Today's is all earned\.$/);
+  });
+
+  test('never promise more than is left today', async ({ page }) => {
+    await addCustomQuest(page, 'Most of it', 3);
+    await addCustomQuest(page, 'Last bit');
+    await tapTimes(page, 'Most of it', 3); // 30 of 40
+    await addCustomQuest(page, 'Half step', 2);
+    await editSave(page, 'state.daily.customQuestEnergy = 35;'); // 5 left, as after an odd mix of steps
+    await page.reload();
+    await waitForApp(page);
+    await expect(quest(page, 'Last bit').locator('[data-reward]')).toHaveText('+5');
+    await expect(quest(page, 'Half step').locator('[data-reward]'), 'no "/step" when a step would earn less').toHaveText('+5');
   });
 
   test('are readable in light and dark mode', async ({ page }) => {

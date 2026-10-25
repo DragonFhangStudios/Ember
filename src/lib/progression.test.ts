@@ -6,6 +6,7 @@ import {
   advanceQuest,
   completeFocusSession,
   createInitialState,
+  customQuestAllowanceLeft,
   dayKey,
   daysBetween,
   evaluateBadges,
@@ -224,6 +225,20 @@ describe('daily reward limits', () => {
     // The real next day still brings fresh allowances.
     completeNewCustomQuest(day(22));
     expect(state.daily).toMatchObject({ date: dayKey(day(22)), customQuestEnergy: 10 });
+  });
+
+  it('reports what custom quests can still earn today, never below zero, fresh each new day', () => {
+    let state = hatched(30, day(20));
+    expect(customQuestAllowanceLeft(state, day(20))).toEqual({ energy: DAILY_LIMITS.customQuestEnergy, bond: DAILY_LIMITS.customQuestGrowth });
+    state = { ...state, quests: [...state.quests, { id: 'c1', title: 'c1', description: '', type: 'custom', completed: false, points: 30, isDaily: true, isCustom: true, progress: 0, target: 3 }] };
+    state = advanceQuest(state, 'c1', day(20)).state;
+    expect(customQuestAllowanceLeft(state, day(20)).energy).toBe(30);
+    expect(customQuestAllowanceLeft(state, day(20)).bond).toBeCloseTo(4 - 2 / 3, 5);
+    state = advanceQuest(state, 'c1', day(20), 2).state;
+    expect(customQuestAllowanceLeft(state, day(20)).energy).toBe(10);
+    state = { ...state, daily: { ...state.daily, customQuestEnergy: 55, customQuestGrowth: 9 } }; // over the limit (an older save)
+    expect(customQuestAllowanceLeft(state, day(20))).toEqual({ energy: 0, bond: 0 });
+    expect(customQuestAllowanceLeft(state, day(21))).toEqual({ energy: DAILY_LIMITS.customQuestEnergy, bond: DAILY_LIMITS.customQuestGrowth });
   });
 
   it('limits survive a save/load round-trip (refresh)', () => {
