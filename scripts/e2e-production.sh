@@ -3,14 +3,17 @@
 # `vite preview`) instead of the dev server: the launch smoke test for the
 # closed alpha (#32). CI is unchanged; it still runs every test on the dev server.
 #
-# Excluded (12 per project; all still run on the dev server in CI), because
+# Excluded (15 per project; all still run on the dev server in CI), because
 # production builds remove the test-only Easter egg switch by design:
 # - the "keyboard Easter egg" tests (11), which switch the Easter egg on;
 # - "tapping Ember gets a musing..." (1), which taps a hatched Ember 8 times
 #   assuming the Easter egg is off. In production each tap has the real
 #   1-in-25 chance of finding Ember at his keyboard (about 28% per run).
 # Other taps in the suite are on the egg or after a low-mood check-in, where
-# the Easter egg never happens. Everything else runs.
+# the Easter egg never happens.
+# Also excluded: the Dragon Wardrobe "when switched back on" tests (3), which
+# use the test-only __emberWardrobe switch (the wardrobe is hidden for the
+# alpha, and production builds remove that switch). Everything else runs.
 #
 # Usage: scripts/e2e-production.sh [extra Playwright arguments]
 set -euo pipefail
@@ -39,4 +42,4 @@ if ! curl -s "http://localhost:$PORT/" | grep -q '/assets/index-'; then
 fi
 
 # Without CI=1, Playwright reuses the server above instead of starting the dev server.
-env -u CI npx playwright test --grep-invert "keyboard Easter egg|tapping Ember gets a musing" "$@"
+env -u CI npx playwright test --grep-invert "keyboard Easter egg|tapping Ember gets a musing|when switched back on" "$@"

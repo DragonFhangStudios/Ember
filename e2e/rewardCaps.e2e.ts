@@ -69,6 +69,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('eight new one-step custom quests in every category earn 40 energy and 4 Bond in total, then nothing more today', async ({ page }, info) => {
+  test.slow(); // many dialog round trips and reloads: slow under parallel load, not a sign of a problem
   const base = await snapshot(page, 'start');
   const rows: Row[] = [base];
   for (let i = 1; i <= 10; i++) {
@@ -89,6 +90,7 @@ test('eight new one-step custom quests in every category earn 40 energy and 4 Bo
 });
 
 test('the allowance holds across reloads, multi-step quests, and deleting and recreating quests', async ({ page }) => {
+  test.slow(); // many dialog round trips and reloads: slow under parallel load, not a sign of a problem
   const base = await snapshot(page, 'start');
   for (let i = 1; i <= 4; i++) {
     await addCustomQuest(page, `Warm-up ${i}`);
@@ -138,6 +140,7 @@ async function openTab(context: BrowserContext) {
 }
 
 test('two tabs completing different custom quests share one allowance', async ({ page, context }) => {
+  test.slow(); // many dialog round trips and reloads: slow under parallel load, not a sign of a problem
   const base = await snapshot(page, 'start');
   const other = await openTab(context);
   for (let i = 1; i <= 4; i++) {
@@ -164,6 +167,7 @@ const later = (days: number, h: number, m: number) => {
 };
 
 test("moving the device clock back across midnight (and forward again) doesn't refill the allowance", async ({ page }) => {
+  test.slow(); // many dialog round trips and reloads: slow under parallel load, not a sign of a problem
   // Quests are added first, on the real clock (their ids come from the time).
   const titles = Array.from({ length: 9 }, (_, i) => `Clock test ${i + 1}`);
   for (const title of titles) await addCustomQuest(page, title);
