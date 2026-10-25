@@ -8,6 +8,7 @@ import {
   DAILY_LIMITS,
   advanceQuest,
   canCorrectQuest,
+  careDoneToday,
   correctQuest,
   createInitialState,
   CustomQuestDetails,
@@ -764,8 +765,8 @@ export default function App() {
           <BondingActions 
             onPet={handlePet} 
             onFeed={handleFeed} 
-            lastPetAt={state.lastPetAt} 
-            lastIncubateAt={state.lastIncubateAt}
+            petDone={careDoneToday(state, 'pet', new Date(nowMs))}
+            incubateDone={careDoneToday(state, 'incubate', new Date(nowMs))}
             stage={state.stage}
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />

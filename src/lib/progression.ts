@@ -746,10 +746,31 @@ export function deleteCustomQuest(state: UserState, id: string, now: Date): Acti
   };
 }
 
+/**
+ * The day a once-a-day care action (petting, incubating) counts for, and the
+ * time to record it at. Normally today; while the clock is behind the save's
+ * own day (rollOverDay keeps the later day), the save's day, recorded as that
+ * day, so a backward clock can neither repeat today's care nor leave an earlier
+ * date behind for a second reward when the clock returns (#42).
+ */
+function careDay(state: UserState, now: Date): { key: string; stamp: string } {
+  if (daysBetween(state.lastLogin, now) < 0) return { key: state.lastLogin, stamp: new Date(state.lastLogin).toISOString() };
+  return { key: dayKey(now), stamp: now.toISOString() };
+}
+
+const caredOn = (at: string | undefined, day: string) => !!at && dayKey(new Date(at)) === day;
+
+/** Whether today's petting or incubation is already done, by the same day rule as the reward (for the care buttons). */
+export function careDoneToday(state: UserState, kind: 'pet' | 'incubate', now: Date): boolean {
+  const current = rollOverDay(state, now);
+  return caredOn(kind === 'pet' ? current.lastPetAt : current.lastIncubateAt, careDay(current, now).key);
+}
+
 export function petDragon(state: UserState, now: Date): ActionResult {
   const current = rollOverDay(state, now);
   const isEgg = current.stage === DragonStage.EGG;
-  if (current.lastPetAt && dayKey(new Date(current.lastPetAt)) === dayKey(now)) {
+  const day = careDay(current, now);
+  if (caredOn(current.lastPetAt, day.key)) {
     return {
       state: current,
       message: isEgg
@@ -758,7 +779,7 @@ export function petDragon(state: UserState, now: Date): ActionResult {
     };
   }
   const next = grantRewards(
-    { ...current, petCount: current.petCount + 1, lastPetAt: now.toISOString() },
+    { ...current, petCount: current.petCount + 1, lastPetAt: day.stamp },
     REWARDS.pet,
   );
   return {
@@ -774,11 +795,12 @@ export function feedDragon(state: UserState, now: Date): ActionResult {
   const current = rollOverDay(state, now);
 
   if (current.stage === DragonStage.EGG) {
-    if (current.lastIncubateAt && dayKey(new Date(current.lastIncubateAt)) === dayKey(now)) {
+    const day = careDay(current, now);
+    if (caredOn(current.lastIncubateAt, day.key)) {
       return { state: current, message: "The egg has already been incubated today. It's glowing steadily." };
     }
     return {
-      state: grantRewards({ ...current, lastIncubateAt: now.toISOString() }, REWARDS.incubate),
+      state: grantRewards({ ...current, lastIncubateAt: day.stamp }, REWARDS.incubate),
       message: 'You provide a spark of warmth. The egg glows with life!',
     };
   }

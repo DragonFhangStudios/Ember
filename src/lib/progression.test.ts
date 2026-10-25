@@ -4,6 +4,7 @@ import {
   DAILY_LIMITS,
   REWARDS,
   advanceQuest,
+  careDoneToday,
   correctQuest,
   editCustomQuest,
   formatRewardAmount,
@@ -308,6 +309,74 @@ describe('daily reward limits', () => {
     const fed = feedDragon(reloaded, day(20, 13)).state;
     expect(bondTotal(fed.bond)).toBe(bondTotal(reloaded.bond));
     expect(bondTotal(logCheckIn(reloaded, 1, 1, day(20, 13)).state.bond)).toBe(bondTotal(reloaded.bond));
+  });
+});
+
+describe("once-a-day care can't be repeated by changing the device clock (#42)", () => {
+  const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m);
+  const kinds = [
+    { name: 'petting', act: petDragon, start: (now: Date) => hatched(30, now) },
+    { name: 'incubating', act: feedDragon, start: (now: Date) => createInitialState(now) },
+  ] as const;
+  /** Runs care actions at the given times (reloading the save between each); returns how many paid. */
+  const rewardsOver = (kind: (typeof kinds)[number], start: UserState, times: Date[]) => {
+    let state = start;
+    let paid = 0;
+    for (const now of times) {
+      const before = bondTotal(state.bond);
+      state = kind.act(state, now).state;
+      if (bondTotal(state.bond) > before) paid++;
+      state = migrateState(JSON.parse(JSON.stringify(state)), now); // a reload
+    }
+    return { paid, state };
+  };
+
+  for (const kind of kinds) {
+    it(`${kind.name}: once a day, and again on a real new day`, () => {
+      expect(rewardsOver(kind, kind.start(at(25, 8)), [at(25, 8), at(25, 9), at(25, 23, 59)]).paid).toBe(1);
+      expect(rewardsOver(kind, kind.start(at(25, 8)), [at(25, 8), at(26, 0, 1), at(27, 12)]).paid).toBe(3);
+    });
+
+    it(`${kind.name}: the clock moving back across midnight, then forward, earns nothing more`, () => {
+      expect(rewardsOver(kind, kind.start(at(25, 0, 30)), [at(25, 0, 30), at(24, 23, 30), at(25, 1), at(24, 22), at(25, 2)]).paid).toBe(1);
+    });
+
+    it(`${kind.name}: after the clock jumped ahead, going back to the real day earns nothing more`, () => {
+      expect(rewardsOver(kind, kind.start(at(25, 9)), [at(25, 9), at(26, 9), at(25, 10), at(25, 18)]).paid).toBe(2);
+    });
+
+    it(`${kind.name}: a new day without care, the clock back to the last care day, then forward: at most one reward`, () => {
+      // Cared on day A (Oct 24); the save then moves to day B (Oct 25) without care.
+      let state = kind.act(kind.start(at(24, 9)), at(24, 9)).state;
+      state = rollOverDay(state, at(25, 8));
+      expect(state.lastLogin).toBe(dayKey(at(25, 8)));
+      const { paid, state: after } = rewardsOver(kind, state, [at(24, 20), at(25, 9), at(25, 21)]);
+      expect(paid, 'one reward for day B, however the clock moved').toBe(1);
+      expect(rewardsOver(kind, after, [at(26, 9)]).paid, "day C's own reward").toBe(1);
+    });
+  }
+
+  it('the care buttons show "done" exactly when the care would be refused', () => {
+    const times = [at(25, 9), at(25, 10), at(24, 23), at(25, 11), at(26, 9), at(25, 12), at(27, 8)];
+    for (const kind of kinds) {
+      let state = kind.start(at(25, 8));
+      for (const now of times) {
+        const done = careDoneToday(state, kind.name === 'petting' ? 'pet' : 'incubate', now);
+        const before = bondTotal(state.bond);
+        state = kind.act(state, now).state;
+        expect(done, `${kind.name} at ${now.toString()}`).toBe(bondTotal(state.bond) === before);
+      }
+    }
+  });
+
+  it('keeps everything already earned and the friendly "already" messages', () => {
+    const cared = petDragon(hatched(30, at(25, 9)), at(25, 9)).state;
+    const again = petDragon(cared, at(24, 23));
+    expect(bondTotal(again.state.bond)).toBe(bondTotal(cared.bond));
+    expect(again.state.energy).toBe(cared.energy);
+    expect(again.message).toMatch(/already had plenty of cuddles today/);
+    const egg = feedDragon(createInitialState(at(25, 9)), at(25, 9)).state;
+    expect(feedDragon(egg, at(24, 23)).message).toMatch(/already been incubated today/);
   });
 });
 
