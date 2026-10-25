@@ -153,7 +153,7 @@ test.describe('custom quest rewards on screen', () => {
     // The form explains the shared allowance, with what's left today.
     await page.getByRole('button', { name: 'Add Custom' }).click();
     await expect(page.getByLabel(/Target Steps/)).toHaveAccessibleDescription(
-      'Each step earns +10 energy. All custom quests share one daily allowance: up to 40 energy and 4 Bond a day, together. After that, they still count for your streak. Left today: 40 energy and 4 Bond.',
+      'Each step can earn up to 10 energy, subject to the shared daily allowance: up to 40 energy and 4 Bond a day from all custom quests together. Finishing one can still count toward your streak. Left today: 40 energy and 4 Bond.',
     );
     await page.keyboard.press('Escape');
     await addCustomQuest(page, 'Big one', 6);
@@ -171,7 +171,7 @@ test.describe('custom quest rewards on screen', () => {
     await tapTimes(page, 'Big one', 3);
     await expect(note(page)).toContainText('Today they can still add 10 energy and 3 Bond.'); // a 6-step quest pays 1/3 Bond a step
     await tapTimes(page, 'Big one', 1); // energy allowance used; Bond is left
-    await expect(note(page)).toContainText('Today they can still add 2.7 Bond. Their energy for today is all earned.');
+    await expect(note(page)).toContainText('Today they can still add 2.6 Bond. Their energy for today is all earned.'); // 2.67, rounded down
     await expect(quest(page, 'Small one').locator('[data-reward]')).toHaveText('Bond only');
     expect((await saved(page)).energy, 'what was shown is what was paid').toBe(90);
     await tapTimes(page, 'Small one', 1);
@@ -197,6 +197,12 @@ test.describe('custom quest rewards on screen', () => {
     await waitForApp(page);
     await expect(quest(page, 'Last bit').locator('[data-reward]')).toHaveText('+5');
     await expect(quest(page, 'Half step').locator('[data-reward]'), 'no "/step" when a step would earn less').toHaveText('+5');
+
+    // A tiny bit of Bond left is never shown as none.
+    await editSave(page, 'state.daily.customQuestEnergy = 40; state.daily.customQuestGrowth = 3.98;');
+    await page.reload();
+    await waitForApp(page);
+    await expect(page.locator('#custom-quest-energy')).toContainText('Today they can still add less than 0.1 Bond.');
 
     // Allowance used up (an imported save, say) before anything counted today: completing still counts the day.
     await editSave(page, 'state.daily.customQuestEnergy = 40; state.daily.customQuestGrowth = 4; state.daily.meaningfulActivity = false;');

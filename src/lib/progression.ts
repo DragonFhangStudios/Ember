@@ -522,6 +522,18 @@ export function rollOverDay(state: UserState, now: Date): UserState {
   };
 }
 
+/**
+ * A reward amount for display. Whole numbers as they are; anything else rounded
+ * down to one decimal, so it never promises more than is there; and a positive
+ * amount is never shown as zero ("less than 0.1").
+ */
+export function formatRewardAmount(n: number): string {
+  if (Number.isInteger(n)) return String(n);
+  if (n <= 0) return '0';
+  if (n < 0.1) return 'less than 0.1';
+  return (Math.floor(n * 10) / 10).toFixed(1);
+}
+
 /** What custom quests can still earn today, together (shown to the player; never negative). */
 export function customQuestAllowanceLeft(state: UserState, now: Date): { energy: number; bond: number } {
   const daily = dailyFor(state, now);

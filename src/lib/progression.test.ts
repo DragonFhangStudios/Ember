@@ -6,6 +6,7 @@ import {
   advanceQuest,
   correctQuest,
   editCustomQuest,
+  formatRewardAmount,
   nextStepReward,
   completeFocusSession,
   createInitialState,
@@ -286,6 +287,17 @@ describe('daily reward limits', () => {
     // A new day: quests reset and pay again, and completing one counts the day.
     expect(nextStepReward(state, state.quests.find(q => q.id === 'q1')!, day(21))).toMatchObject({ energy: 10, alreadyRewarded: false, countsForStreak: true });
     expect(nextStepReward(state, state.quests.find(q => q.id === 'c1')!, day(21)), 'one step of three: no streak yet').toMatchObject({ energy: 10, countsForStreak: false });
+  });
+
+  it('shows reward amounts without ever turning a positive amount into zero or rounding up', () => {
+    expect(formatRewardAmount(4)).toBe('4');
+    expect(formatRewardAmount(0)).toBe('0');
+    expect(formatRewardAmount(0.02)).toBe('less than 0.1');
+    expect(formatRewardAmount(0.0999)).toBe('less than 0.1');
+    expect(formatRewardAmount(0.1)).toBe('0.1');
+    expect(formatRewardAmount(3.333333)).toBe('3.3');
+    expect(formatRewardAmount(2.666667), 'rounded down, never up').toBe('2.6');
+    expect(formatRewardAmount(3.96), 'never shown as 4.0').toBe('3.9');
   });
 
   it('limits survive a save/load round-trip (refresh)', () => {

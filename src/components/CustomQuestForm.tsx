@@ -4,7 +4,7 @@ import { Check, Plus, X, Sparkles, Sun, Pill, Timer, Heart, Palette } from 'luci
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
 import { chipClasses, labelClasses } from '../lib/questColors';
-import { CUSTOM_QUEST_ENERGY_PER_STEP, CUSTOM_QUEST_TARGET_MAX, CustomQuestDetails, DAILY_LIMITS, customQuestTarget } from '../lib/progression';
+import { CUSTOM_QUEST_ENERGY_PER_STEP, CUSTOM_QUEST_TARGET_MAX, CustomQuestDetails, DAILY_LIMITS, customQuestTarget, formatRewardAmount } from '../lib/progression';
 
 interface CustomQuestFormProps {
   onAdd: (quest: Quest) => void;
@@ -265,12 +265,12 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType, e
               className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg"
             />
             <p id={`${fieldId}-allowance`} data-allowance className="text-xs text-fg-muted mt-2">
-              Each step earns +{CUSTOM_QUEST_ENERGY_PER_STEP} energy. All custom quests share one daily allowance: up to{' '}
-              {DAILY_LIMITS.customQuestEnergy} energy and {DAILY_LIMITS.customQuestGrowth} Bond a day, together. After that, they still
-              count for your streak.
+              Each step can earn up to {CUSTOM_QUEST_ENERGY_PER_STEP} energy, subject to the shared daily allowance: up to{' '}
+              {DAILY_LIMITS.customQuestEnergy} energy and {DAILY_LIMITS.customQuestGrowth} Bond a day from all custom quests together.
+              Finishing one can still count toward your streak.
               {allowanceLeft &&
                 (allowanceLeft.energy > 0 || allowanceLeft.bond > 0
-                  ? ` Left today: ${allowanceLeft.energy} energy and ${Number.isInteger(allowanceLeft.bond) ? allowanceLeft.bond : allowanceLeft.bond.toFixed(1)} Bond.`
+                  ? ` Left today: ${allowanceLeft.energy} energy and ${formatRewardAmount(allowanceLeft.bond)} Bond.`
                   : " Today's is all earned.")}
             </p>
           </div>

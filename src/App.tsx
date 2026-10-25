@@ -13,6 +13,7 @@ import {
   CustomQuestDetails,
   customQuestAllowanceLeft,
   dailyFor,
+  formatRewardAmount,
   nextStepReward,
   dayKey,
   deleteCustomQuest,
@@ -984,7 +985,7 @@ const CUSTOM_ENERGY_NOTE_ID = 'custom-quest-energy';
  * which is a different thing from what can still be earned.
  */
 function CustomQuestEnergyNote({ left }: { left: { energy: number; bond: number } }) {
-  const still = [left.energy > 0 && `${left.energy} energy`, left.bond > 0 && `${formatAmount(left.bond)} Bond`].filter(Boolean);
+  const still = [left.energy > 0 && `${left.energy} energy`, left.bond > 0 && `${formatRewardAmount(left.bond)} Bond`].filter(Boolean);
   const earned = left.energy > 0 ? (left.bond > 0 ? '' : ' Their Bond for today is all earned.') : left.bond > 0 ? ' Their energy for today is all earned.' : '';
   return (
     <p id={CUSTOM_ENERGY_NOTE_ID} data-energy-left={left.energy} className="text-xs text-fg-muted -mt-2">
@@ -998,8 +999,6 @@ function CustomQuestEnergyNote({ left }: { left: { energy: number; bond: number 
   );
 }
 
-/** A reward amount for display: whole numbers as they are, others to one decimal. */
-const formatAmount = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 function NavButton({ active, onClick, icon: Icon, label }: { active: boolean, onClick: () => void, icon: any, label: string }) {
   return (
