@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { bondOf, expect, openApp, readSave, test, waitForApp } from './fixtures';
+import { bondOf, editSave, expect, openApp, readSave, test, waitForApp } from './fixtures';
 
 // Once-a-day care (#42): cleaning/petting and incubating pay once per day, and
 // moving the device clock back across midnight (or ahead and back) never pays
@@ -89,6 +89,7 @@ test('a save cared for in New York and reopened in Los Angeles pays no second ti
   await nyPage.goto('/');
   await waitForApp(nyPage);
   expect(await careBoth(nyPage), 'cared for in New York').toEqual([2, 5]);
+  expect((await saved(nyPage)).daily, "today's care flags are saved").toMatchObject({ petted: true, incubated: true });
   const saveFile = await ny.storageState({ indexedDB: true });
   await ny.close();
 
@@ -105,4 +106,22 @@ test('a save cared for in New York and reopened in Los Angeles pays no second ti
   await at(page, new Date('2026-10-26T16:00:00Z')); // Oct 26 09:00 in Los Angeles
   expect(await careBoth(page), 'a real new day').toEqual([2, 5]);
   await la.close();
+});
+
+test("an older save with today's care already done can't claim it again after upgrading", async ({ page }) => {
+  test.slow();
+  await at(page, later(2, 9, 0));
+  expect(await careBoth(page)).toEqual([2, 5]);
+  // The same save as a build from before the care flags stored it.
+  await editSave(page, 'delete state.daily.petted; delete state.daily.incubated;');
+  await page.reload();
+  await waitForApp(page);
+  expect(Object.keys((await saved(page)).daily)).not.toContain('petted');
+  await expect(page.getByRole('button', { name: 'Clean & Hydrate', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Incubate', exact: true })).toBeDisabled();
+  expect(await careBoth(page), 'right after upgrading').toEqual([0, 0]);
+
+  await at(page, later(3, 9, 0));
+  expect(await careBoth(page), 'the next day').toEqual([2, 5]);
+  expect((await saved(page)).daily).toMatchObject({ petted: true, incubated: true });
 });

@@ -78,6 +78,13 @@ export interface DailyRewards {
   questRewards: Record<string, QuestReward>;
   /** Quests completed today by a focus session or check-in (not correctable). */
   autoCompletedQuests: string[];
+  /**
+   * Today's once-a-day care is done: petting (or cleaning the egg), incubating.
+   * False on every day that starts fresh; absent only on a day that began
+   * before these flags existed, which falls back to the stored care time (#42).
+   */
+  petted?: boolean;
+  incubated?: boolean;
 }
 
 /**

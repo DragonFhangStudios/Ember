@@ -8,6 +8,7 @@ import {
   correctQuest,
   editCustomQuest,
   formatRewardAmount,
+  freshDaily,
   nextStepReward,
   completeFocusSession,
   createInitialState,
@@ -99,6 +100,8 @@ describe('daily rollover', () => {
       customQuestEnergy: 0,
       questRewards: {},
       autoCompletedQuests: [],
+      petted: false,
+      incubated: false,
     });
   });
 
@@ -426,10 +429,7 @@ describe('once-a-day care across time zones (#42)', () => {
       expect(careIn(kind, cared, [[LA, utc(25, 4, 45)], [LA, utc(25, 6, 59)]])).toEqual([false, false]);
     });
 
-    // Known gaps (pending a Council decision): a stored time can't tell which day it
-    // counted for in another time zone. Fixing these needs the care day itself saved
-    // (see #42). `it.fails` keeps them visible; it starts failing once they're fixed.
-    it.fails(`${kind.name} (known gap): cared on Oct 25 in New York, again later on Oct 25 in Los Angeles: no second reward`, () => {
+    it(`${kind.name}: cared on Oct 25 in New York, again later on Oct 25 in Los Angeles: no second reward`, () => {
       const cared = caredInNY(kind, utc(25, 4, 30));
       expect(careIn(kind, cared, [[LA, utc(25, 17)], [LA, utc(26, 6)]])).toEqual([false, false]);
     });
@@ -439,11 +439,95 @@ describe('once-a-day care across time zones (#42)', () => {
       expect(careIn(kind, west, [[LA, utc(26, 16)]])).toEqual([true]); // Oct 26 09:00 Los Angeles
     });
 
-    it.fails(`${kind.name} (known gap): cared late in Los Angeles, the next morning in New York still pays`, () => {
+    it(`${kind.name}: cared late in Los Angeles, the next morning in New York still pays`, () => {
       const east = inZone(LA, () => kind.act(kind.start(utc(26, 5)), utc(26, 5)).state); // Oct 25 22:00 Los Angeles
+      // The stored time (Oct 26 01:00 in New York) looks like "today" there; the new day's flag decides.
+      const stored = kind.kind === 'pet' ? east.lastPetAt : east.lastIncubateAt;
+      expect(inZone(NY, () => dayKey(new Date(stored!)) === dayKey(utc(26, 12)))).toBe(true);
       expect(careIn(kind, east, [[NY, utc(26, 12)]])).toEqual([true]); // Oct 26 08:00 New York
     });
   }
+});
+
+describe('daily care flags and saves from before them (#42)', () => {
+  const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m);
+  const reload = (state: UserState, now: Date) => migrateState(JSON.parse(JSON.stringify(state)), now);
+  /** The same save as an older build stored it: today's counters without the care flags. */
+  const beforeFlags = (state: UserState): UserState => {
+    const { petted: _p, incubated: _i, ...daily } = state.daily;
+    return { ...state, daily: daily as UserState['daily'] };
+  };
+  const kinds = [
+    { name: 'petting', kind: 'pet', flag: 'petted', act: petDragon, start: (now: Date) => hatched(30, now) },
+    { name: 'cleaning the egg', kind: 'pet', flag: 'petted', act: petDragon, start: (now: Date) => createInitialState(now) },
+    { name: 'incubating', kind: 'incubate', flag: 'incubated', act: feedDragon, start: (now: Date) => createInitialState(now) },
+  ] as const;
+  /** Cares at `now` on a reloaded save; returns whether it paid, checking the button agreed. */
+  const careAt = (kind: (typeof kinds)[number], state: UserState, now: Date) => {
+    const loaded = reload(state, now);
+    const done = careDoneToday(loaded, kind.kind, now);
+    const after = kind.act(loaded, now).state;
+    const paid = bondTotal(after.bond) > bondTotal(loaded.bond);
+    expect(done, `${kind.name}: button at ${now.toString()}`).toBe(!paid);
+    return { paid, state: after };
+  };
+
+  it('a fresh day has explicit "not yet" flags; a day from before the flags has none', () => {
+    expect(createInitialState(at(25, 8)).daily).toMatchObject({ petted: false, incubated: false });
+    expect(rollOverDay(createInitialState(at(25, 8)), at(26, 8)).daily).toMatchObject({ petted: false, incubated: false });
+    const upgraded = reload(beforeFlags(createInitialState(at(25, 8))), at(25, 9)).daily;
+    expect('petted' in upgraded || 'incubated' in upgraded).toBe(false);
+    // ...and saving it again doesn't invent them.
+    expect(Object.keys(reload(reload(beforeFlags(createInitialState(at(25, 8))), at(25, 9)), at(25, 10)).daily)).not.toContain('petted');
+  });
+
+  for (const kind of kinds) {
+    it(`${kind.name}: an old save with today's care already done can't claim it again right after upgrading`, () => {
+      const cared = beforeFlags(kind.act(kind.start(at(25, 8)), at(25, 8)).state);
+      expect(careAt(kind, cared, at(25, 9)).paid).toBe(false);
+      expect(careAt(kind, cared, at(24, 23)).paid, 'clock moved back').toBe(false);
+      expect(careAt(kind, cared, at(26, 9)).paid, 'the next day').toBe(true);
+    });
+
+    it(`${kind.name}: an old save not yet cared for today can care once, and the flag then decides`, () => {
+      const old = beforeFlags(kind.start(at(25, 8)));
+      const first = careAt(kind, old, at(25, 9));
+      expect(first.paid).toBe(true);
+      expect(first.state.daily[kind.flag]).toBe(true);
+      expect(careAt(kind, first.state, at(25, 10)).paid).toBe(false);
+    });
+
+    it(`${kind.name}: an old save opened while the clock is behind its day pays nothing until the day comes back`, () => {
+      // Cared on day A; the save moved on to day B without care, then the flags arrived.
+      const onB = beforeFlags(rollOverDay(kind.act(kind.start(at(24, 9)), at(24, 9)).state, at(25, 8)));
+      const { petted: _p, incubated: _i, ...rest } = onB.daily;
+      expect(rest.date).toBe(dayKey(at(25, 8)));
+      const back = careAt(kind, onB, at(24, 20));
+      expect(back.paid, 'clock back to day A').toBe(false);
+      const further = careAt(kind, back.state, at(23, 20));
+      expect(further.paid, 'clock back before day A').toBe(false);
+      expect(careAt(kind, further.state, at(25, 9)).paid, "day B's own care").toBe(true);
+    });
+
+    it(`${kind.name}: while the clock is behind, counters from any day but the save's own never pay`, () => {
+      // A save whose counters are older than its day (the flag says "not yet").
+      const stale = { ...kind.start(at(25, 8)), daily: freshDaily(dayKey(at(22, 8))) };
+      const back = careAt(kind, stale, at(24, 20));
+      expect(back.paid, 'clock behind the save').toBe(false);
+      const onDay = careAt(kind, back.state, at(25, 9));
+      expect(onDay.paid, "the save's day").toBe(true);
+      expect(careAt(kind, onDay.state, at(25, 10)).paid, 'only once').toBe(false);
+    });
+  }
+
+  it('both flags survive saving and reloading', () => {
+    let egg = petDragon(createInitialState(at(25, 8)), at(25, 8)).state;
+    egg = feedDragon(egg, at(25, 8)).state;
+    const reloaded = reload(reload(egg, at(25, 9)), at(25, 10));
+    expect(reloaded.daily).toMatchObject({ petted: true, incubated: true });
+    expect(reloaded.lastPetAt).toBe(egg.lastPetAt);
+    expect(reloaded.lastIncubateAt).toBe(egg.lastIncubateAt);
+  });
 });
 
 describe('quests', () => {

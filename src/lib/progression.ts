@@ -129,6 +129,8 @@ export function freshDaily(date: string): DailyRewards {
     customQuestEnergy: 0,
     questRewards: {},
     autoCompletedQuests: [],
+    petted: false,
+    incubated: false,
   };
 }
 
@@ -376,6 +378,13 @@ export function migrateState(raw: unknown, now: Date): UserState {
     ? daily.autoCompletedQuests.filter((id): id is string => typeof id === 'string')
     : [];
   daily.customQuestEnergy = num(daily.customQuestEnergy, 0);
+  // #42: a care flag counts only if the save stored one. Merging freshDaily's
+  // `false` into a day that began before the flags existed would let care done
+  // earlier that day pay again, so such a day keeps no flag and falls back to
+  // the stored care time.
+  for (const flag of ['petted', 'incubated'] as const) {
+    if (typeof saved.daily?.[flag] !== 'boolean') delete daily[flag];
+  }
   if (num(saved.version, 0) < 9 && daily.date === lastLogin) {
     // Everything today's quests already show was rewarded before the upgrade,
     // so none of it can pay again, and custom-quest energy already earned
@@ -747,28 +756,36 @@ export function deleteCustomQuest(state: UserState, id: string, now: Date): Acti
 }
 
 /**
- * Whether a once-a-day care action (petting, incubating) is closed for now:
- * already done today, or the device's date is behind the save's own day
- * (rollOverDay keeps the later day). A stored time's calendar date depends on
- * the device's time zone, which isn't saved, so while the date is behind (the
- * clock moved back, or the player travelled west) no care pays at all. It can
- * then neither repeat that day's care nor leave an earlier date behind for a
- * second reward when the date catches up (#42).
+ * Whether today's petting (or egg cleaning) or incubation is done. Today's
+ * daily flag decides: dailyFor keeps the save's own day while the device's
+ * date is behind it, so a backward clock or travelling west can't refill it,
+ * and a new day starts with a fresh flag in any time zone (#42).
+ *
+ * A day that began before the flags existed has none. Then the stored care
+ * time decides, and nothing pays while the device's date is behind the save's
+ * day, because that time's calendar date depends on a time zone that isn't
+ * saved.
  */
-function careClosed(state: UserState, lastAt: string | undefined, now: Date): boolean {
-  return daysBetween(state.lastLogin, now) < 0 || (!!lastAt && dayKey(new Date(lastAt)) === dayKey(now));
+function careDone(state: UserState, kind: 'pet' | 'incubate', now: Date): boolean {
+  const behind = daysBetween(state.lastLogin, now) < 0;
+  const daily = dailyFor(state, now);
+  // Only the save's own day may answer while the date is behind (never a fresh one).
+  if (behind && daily.date !== state.lastLogin) return true;
+  const flag = kind === 'pet' ? daily.petted : daily.incubated;
+  if (flag !== undefined) return flag;
+  const lastAt = kind === 'pet' ? state.lastPetAt : state.lastIncubateAt;
+  return behind || (!!lastAt && dayKey(new Date(lastAt)) === dayKey(now));
 }
 
-/** Whether today's petting or incubation is closed, by the same rule as the reward (for the care buttons). */
+/** Whether today's petting or incubation is done, by the same rule as the reward (for the care buttons). */
 export function careDoneToday(state: UserState, kind: 'pet' | 'incubate', now: Date): boolean {
-  const current = rollOverDay(state, now);
-  return careClosed(current, kind === 'pet' ? current.lastPetAt : current.lastIncubateAt, now);
+  return careDone(rollOverDay(state, now), kind, now);
 }
 
 export function petDragon(state: UserState, now: Date): ActionResult {
   const current = rollOverDay(state, now);
   const isEgg = current.stage === DragonStage.EGG;
-  if (careClosed(current, current.lastPetAt, now)) {
+  if (careDone(current, 'pet', now)) {
     return {
       state: current,
       message: isEgg
@@ -777,7 +794,12 @@ export function petDragon(state: UserState, now: Date): ActionResult {
     };
   }
   const next = grantRewards(
-    { ...current, petCount: current.petCount + 1, lastPetAt: now.toISOString() },
+    {
+      ...current,
+      petCount: current.petCount + 1,
+      lastPetAt: now.toISOString(),
+      daily: { ...dailyFor(current, now), petted: true },
+    },
     REWARDS.pet,
   );
   return {
@@ -793,11 +815,14 @@ export function feedDragon(state: UserState, now: Date): ActionResult {
   const current = rollOverDay(state, now);
 
   if (current.stage === DragonStage.EGG) {
-    if (careClosed(current, current.lastIncubateAt, now)) {
+    if (careDone(current, 'incubate', now)) {
       return { state: current, message: "The egg has already been incubated today. It's glowing steadily." };
     }
     return {
-      state: grantRewards({ ...current, lastIncubateAt: now.toISOString() }, REWARDS.incubate),
+      state: grantRewards(
+        { ...current, lastIncubateAt: now.toISOString(), daily: { ...dailyFor(current, now), incubated: true } },
+        REWARDS.incubate,
+      ),
       message: 'You provide a spark of warmth. The egg glows with life!',
     };
   }
