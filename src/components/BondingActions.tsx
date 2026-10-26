@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Heart, Utensils, Sparkles, Flame, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -7,41 +6,17 @@ import { DragonStage } from '../types';
 interface BondingActionsProps {
   onPet: () => void;
   onFeed: () => void;
-  lastPetAt?: string;
-  lastIncubateAt?: string;
+  /** Today's petting / incubation is done (see careDoneToday: the same day rule as the reward). */
+  petDone: boolean;
+  incubateDone: boolean;
   stage: DragonStage;
   feedsLeft: number;
 }
 
-export function BondingActions({ onPet, onFeed, lastPetAt, lastIncubateAt, stage, feedsLeft }: BondingActionsProps) {
+export function BondingActions({ onPet, onFeed, petDone, incubateDone, stage, feedsLeft }: BondingActionsProps) {
   const isEgg = stage === DragonStage.EGG;
-  const [petTimeLeft, setPetTimeLeft] = useState(0);
-  const [incubateTimeLeft, setIncubateTimeLeft] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const today = new Date().toDateString();
-      
-      if (lastPetAt) {
-        const last = new Date(lastPetAt).toDateString();
-        setPetTimeLeft(last === today ? 1 : 0);
-      } else {
-        setPetTimeLeft(0);
-      }
-
-      if (lastIncubateAt) {
-        const last = new Date(lastIncubateAt).toDateString();
-        setIncubateTimeLeft(last === today ? 1 : 0);
-      } else {
-        setIncubateTimeLeft(0);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [lastPetAt, lastIncubateAt]);
-
-  const canPet = petTimeLeft === 0;
-  const canIncubate = incubateTimeLeft === 0;
+  const canPet = !petDone;
+  const canIncubate = !incubateDone;
   const canFeed = isEgg ? canIncubate : feedsLeft > 0;
 
   return (

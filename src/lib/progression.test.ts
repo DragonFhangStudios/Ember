@@ -4,9 +4,11 @@ import {
   DAILY_LIMITS,
   REWARDS,
   advanceQuest,
+  careDoneToday,
   correctQuest,
   editCustomQuest,
   formatRewardAmount,
+  freshDaily,
   nextStepReward,
   completeFocusSession,
   createInitialState,
@@ -98,6 +100,8 @@ describe('daily rollover', () => {
       customQuestEnergy: 0,
       questRewards: {},
       autoCompletedQuests: [],
+      petted: false,
+      incubated: false,
     });
   });
 
@@ -308,6 +312,221 @@ describe('daily reward limits', () => {
     const fed = feedDragon(reloaded, day(20, 13)).state;
     expect(bondTotal(fed.bond)).toBe(bondTotal(reloaded.bond));
     expect(bondTotal(logCheckIn(reloaded, 1, 1, day(20, 13)).state.bond)).toBe(bondTotal(reloaded.bond));
+  });
+});
+
+describe("once-a-day care can't be repeated by changing the device clock (#42)", () => {
+  const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m);
+  const kinds = [
+    { name: 'petting', act: petDragon, start: (now: Date) => hatched(30, now) },
+    { name: 'incubating', act: feedDragon, start: (now: Date) => createInitialState(now) },
+  ] as const;
+  /** Runs care actions at the given times (reloading the save between each); returns how many paid. */
+  const rewardsOver = (kind: (typeof kinds)[number], start: UserState, times: Date[]) => {
+    let state = start;
+    let paid = 0;
+    for (const now of times) {
+      const before = bondTotal(state.bond);
+      state = kind.act(state, now).state;
+      if (bondTotal(state.bond) > before) paid++;
+      state = migrateState(JSON.parse(JSON.stringify(state)), now); // a reload
+    }
+    return { paid, state };
+  };
+
+  for (const kind of kinds) {
+    it(`${kind.name}: once a day, and again on a real new day`, () => {
+      expect(rewardsOver(kind, kind.start(at(25, 8)), [at(25, 8), at(25, 9), at(25, 23, 59)]).paid).toBe(1);
+      expect(rewardsOver(kind, kind.start(at(25, 8)), [at(25, 8), at(26, 0, 1), at(27, 12)]).paid).toBe(3);
+    });
+
+    it(`${kind.name}: the clock moving back across midnight, then forward, earns nothing more`, () => {
+      expect(rewardsOver(kind, kind.start(at(25, 0, 30)), [at(25, 0, 30), at(24, 23, 30), at(25, 1), at(24, 22), at(25, 2)]).paid).toBe(1);
+    });
+
+    it(`${kind.name}: after the clock jumped ahead, going back to the real day earns nothing more`, () => {
+      expect(rewardsOver(kind, kind.start(at(25, 9)), [at(25, 9), at(26, 9), at(25, 10), at(25, 18)]).paid).toBe(2);
+    });
+
+    it(`${kind.name}: a new day without care, the clock back to the last care day, then forward: at most one reward`, () => {
+      // Cared on day A (Oct 24); the save then moves to day B (Oct 25) without care.
+      let state = kind.act(kind.start(at(24, 9)), at(24, 9)).state;
+      state = rollOverDay(state, at(25, 8));
+      expect(state.lastLogin).toBe(dayKey(at(25, 8)));
+      const { paid, state: after } = rewardsOver(kind, state, [at(24, 20), at(25, 9), at(25, 21)]);
+      expect(paid, 'one reward for day B, however the clock moved').toBe(1);
+      expect(rewardsOver(kind, after, [at(26, 9)]).paid, "day C's own reward").toBe(1);
+    });
+  }
+
+  it('the care buttons show "done" exactly when the care would be refused', () => {
+    const times = [at(25, 9), at(25, 10), at(24, 23), at(25, 11), at(26, 9), at(25, 12), at(27, 8)];
+    for (const kind of kinds) {
+      let state = kind.start(at(25, 8));
+      for (const now of times) {
+        const done = careDoneToday(state, kind.name === 'petting' ? 'pet' : 'incubate', now);
+        const before = bondTotal(state.bond);
+        state = kind.act(state, now).state;
+        expect(done, `${kind.name} at ${now.toString()}`).toBe(bondTotal(state.bond) === before);
+      }
+    }
+  });
+
+  it('keeps everything already earned and the friendly "already" messages', () => {
+    const cared = petDragon(hatched(30, at(25, 9)), at(25, 9)).state;
+    const again = petDragon(cared, at(24, 23));
+    expect(bondTotal(again.state.bond)).toBe(bondTotal(cared.bond));
+    expect(again.state.energy).toBe(cared.energy);
+    expect(again.message).toMatch(/already had plenty of cuddles today/);
+    const egg = feedDragon(createInitialState(at(25, 9)), at(25, 9)).state;
+    expect(feedDragon(egg, at(24, 23)).message).toMatch(/already been incubated today/);
+  });
+});
+
+describe('once-a-day care across time zones (#42)', () => {
+  /** Runs `fn` with the device in time zone `tz` (Node applies a runtime TZ change). */
+  const inZone = <T,>(tz: string, fn: () => T): T => {
+    const before = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+      return fn();
+    } finally {
+      if (before === undefined) delete process.env.TZ;
+      else process.env.TZ = before;
+    }
+  };
+  const NY = 'America/New_York';
+  const LA = 'America/Los_Angeles';
+  const utc = (d: number, h: number, m = 0) => new Date(Date.UTC(2026, 9, d, h, m)); // Oct 2026: NY = UTC-4, LA = UTC-7
+  const reload = (state: UserState, now: Date) => migrateState(JSON.parse(JSON.stringify(state)), now);
+  const kinds = [
+    { name: 'petting', kind: 'pet', act: petDragon, start: (now: Date) => hatched(30, now) },
+    { name: 'cleaning the egg', kind: 'pet', act: petDragon, start: (now: Date) => createInitialState(now) },
+    { name: 'incubating', kind: 'incubate', act: feedDragon, start: (now: Date) => createInitialState(now) },
+  ] as const;
+  /** Cares in `zone` at each time (reloading the save first); returns what paid and whether the button agreed. */
+  const careIn = (kind: (typeof kinds)[number], state: UserState, steps: [string, Date][]) => {
+    const paid: boolean[] = [];
+    for (const [zone, now] of steps) {
+      state = inZone(zone, () => {
+        const loaded = reload(state, now);
+        const done = careDoneToday(loaded, kind.kind, now);
+        const after = kind.act(loaded, now).state;
+        const gotPaid = bondTotal(after.bond) > bondTotal(loaded.bond);
+        expect(done, `${kind.name}: button at ${now.toISOString()} in ${zone}`).toBe(!gotPaid);
+        paid.push(gotPaid);
+        return after;
+      });
+    }
+    return paid;
+  };
+  const caredInNY = (kind: (typeof kinds)[number], now: Date) => inZone(NY, () => kind.act(kind.start(now), now).state);
+
+  for (const kind of kinds) {
+    it(`${kind.name}: cared just after midnight in New York, reopened the same evening-before in Los Angeles: no second reward`, () => {
+      // Oct 25 00:30 in New York is Oct 24 21:30 in Los Angeles; the save is on Oct 25.
+      const cared = caredInNY(kind, utc(25, 4, 30));
+      expect(careIn(kind, cared, [[LA, utc(25, 4, 45)], [LA, utc(25, 6, 59)]])).toEqual([false, false]);
+    });
+
+    it(`${kind.name}: cared on Oct 25 in New York, again later on Oct 25 in Los Angeles: no second reward`, () => {
+      const cared = caredInNY(kind, utc(25, 4, 30));
+      expect(careIn(kind, cared, [[LA, utc(25, 17)], [LA, utc(26, 6)]])).toEqual([false, false]);
+    });
+
+    it(`${kind.name}: a real new day still pays after travelling west`, () => {
+      const west = caredInNY(kind, utc(25, 13)); // Oct 25 09:00 New York
+      expect(careIn(kind, west, [[LA, utc(26, 16)]])).toEqual([true]); // Oct 26 09:00 Los Angeles
+    });
+
+    it(`${kind.name}: cared late in Los Angeles, the next morning in New York still pays`, () => {
+      const east = inZone(LA, () => kind.act(kind.start(utc(26, 5)), utc(26, 5)).state); // Oct 25 22:00 Los Angeles
+      // The stored time (Oct 26 01:00 in New York) looks like "today" there; the new day's flag decides.
+      const stored = kind.kind === 'pet' ? east.lastPetAt : east.lastIncubateAt;
+      expect(inZone(NY, () => dayKey(new Date(stored!)) === dayKey(utc(26, 12)))).toBe(true);
+      expect(careIn(kind, east, [[NY, utc(26, 12)]])).toEqual([true]); // Oct 26 08:00 New York
+    });
+  }
+});
+
+describe('daily care flags and saves from before them (#42)', () => {
+  const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m);
+  const reload = (state: UserState, now: Date) => migrateState(JSON.parse(JSON.stringify(state)), now);
+  /** The same save as an older build stored it: today's counters without the care flags. */
+  const beforeFlags = (state: UserState): UserState => {
+    const { petted: _p, incubated: _i, ...daily } = state.daily;
+    return { ...state, daily: daily as UserState['daily'] };
+  };
+  const kinds = [
+    { name: 'petting', kind: 'pet', flag: 'petted', act: petDragon, start: (now: Date) => hatched(30, now) },
+    { name: 'cleaning the egg', kind: 'pet', flag: 'petted', act: petDragon, start: (now: Date) => createInitialState(now) },
+    { name: 'incubating', kind: 'incubate', flag: 'incubated', act: feedDragon, start: (now: Date) => createInitialState(now) },
+  ] as const;
+  /** Cares at `now` on a reloaded save; returns whether it paid, checking the button agreed. */
+  const careAt = (kind: (typeof kinds)[number], state: UserState, now: Date) => {
+    const loaded = reload(state, now);
+    const done = careDoneToday(loaded, kind.kind, now);
+    const after = kind.act(loaded, now).state;
+    const paid = bondTotal(after.bond) > bondTotal(loaded.bond);
+    expect(done, `${kind.name}: button at ${now.toString()}`).toBe(!paid);
+    return { paid, state: after };
+  };
+
+  it('a fresh day has explicit "not yet" flags; a day from before the flags has none', () => {
+    expect(createInitialState(at(25, 8)).daily).toMatchObject({ petted: false, incubated: false });
+    expect(rollOverDay(createInitialState(at(25, 8)), at(26, 8)).daily).toMatchObject({ petted: false, incubated: false });
+    const upgraded = reload(beforeFlags(createInitialState(at(25, 8))), at(25, 9)).daily;
+    expect('petted' in upgraded || 'incubated' in upgraded).toBe(false);
+    // ...and saving it again doesn't invent them.
+    expect(Object.keys(reload(reload(beforeFlags(createInitialState(at(25, 8))), at(25, 9)), at(25, 10)).daily)).not.toContain('petted');
+  });
+
+  for (const kind of kinds) {
+    it(`${kind.name}: an old save with today's care already done can't claim it again right after upgrading`, () => {
+      const cared = beforeFlags(kind.act(kind.start(at(25, 8)), at(25, 8)).state);
+      expect(careAt(kind, cared, at(25, 9)).paid).toBe(false);
+      expect(careAt(kind, cared, at(24, 23)).paid, 'clock moved back').toBe(false);
+      expect(careAt(kind, cared, at(26, 9)).paid, 'the next day').toBe(true);
+    });
+
+    it(`${kind.name}: an old save not yet cared for today can care once, and the flag then decides`, () => {
+      const old = beforeFlags(kind.start(at(25, 8)));
+      const first = careAt(kind, old, at(25, 9));
+      expect(first.paid).toBe(true);
+      expect(first.state.daily[kind.flag]).toBe(true);
+      expect(careAt(kind, first.state, at(25, 10)).paid).toBe(false);
+    });
+
+    it(`${kind.name}: an old save opened while the clock is behind its day pays nothing until the day comes back`, () => {
+      // Cared on day A; the save moved on to day B without care, then the flags arrived.
+      const onB = beforeFlags(rollOverDay(kind.act(kind.start(at(24, 9)), at(24, 9)).state, at(25, 8)));
+      const { petted: _p, incubated: _i, ...rest } = onB.daily;
+      expect(rest.date).toBe(dayKey(at(25, 8)));
+      const back = careAt(kind, onB, at(24, 20));
+      expect(back.paid, 'clock back to day A').toBe(false);
+      const further = careAt(kind, back.state, at(23, 20));
+      expect(further.paid, 'clock back before day A').toBe(false);
+      expect(careAt(kind, further.state, at(25, 9)).paid, "day B's own care").toBe(true);
+    });
+
+    it(`${kind.name}: while the clock is behind, counters from any day but the save's own never pay`, () => {
+      // A save whose counters are older than its day (the flag says "not yet").
+      const stale = { ...kind.start(at(25, 8)), daily: freshDaily(dayKey(at(22, 8))) };
+      const back = careAt(kind, stale, at(24, 20));
+      expect(back.paid, 'clock behind the save').toBe(false);
+      const onDay = careAt(kind, back.state, at(25, 9));
+      expect(onDay.paid, "the save's day").toBe(true);
+      expect(careAt(kind, onDay.state, at(25, 10)).paid, 'only once').toBe(false);
+    });
+  }
+
+  it('both flags survive saving and reloading', () => {
+    let egg = petDragon(createInitialState(at(25, 8)), at(25, 8)).state;
+    egg = feedDragon(egg, at(25, 8)).state;
+    const reloaded = reload(reload(egg, at(25, 9)), at(25, 10));
+    expect(reloaded.daily).toMatchObject({ petted: true, incubated: true });
+    expect(reloaded.lastPetAt).toBe(egg.lastPetAt);
+    expect(reloaded.lastIncubateAt).toBe(egg.lastIncubateAt);
   });
 });
 
