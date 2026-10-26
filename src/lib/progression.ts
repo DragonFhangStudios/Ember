@@ -132,10 +132,16 @@ export function freshDaily(date: string): DailyRewards {
   };
 }
 
-/** Today's reward counters, treating counters from another day as empty. */
+/**
+ * Today's reward counters, treating counters from an earlier day as empty. If
+ * the clock moved backwards (rollOverDay keeps the save on its later day), the
+ * save's own day still applies, so changing the clock never refills a limit.
+ */
 export function dailyFor(state: UserState, now: Date): DailyRewards {
   const today = dayKey(now);
-  return state.daily?.date === today ? state.daily : freshDaily(today);
+  if (state.daily?.date === today) return state.daily;
+  if (state.daily?.date === state.lastLogin && daysBetween(state.lastLogin, now) < 0) return state.daily;
+  return freshDaily(today);
 }
 
 const NO_REWARD: QuestReward = { energy: 0, growth: 0, scales: 0 };
@@ -517,6 +523,78 @@ export function rollOverDay(state: UserState, now: Date): UserState {
 }
 
 /**
+ * A reward amount for display. Whole numbers as they are; anything else rounded
+ * down to one decimal, so it never promises more than is there; and a positive
+ * amount is never shown as zero ("less than 0.1").
+ */
+export function formatRewardAmount(n: number): string {
+  if (Number.isInteger(n)) return String(n);
+  if (n <= 0) return '0';
+  if (n < 0.1) return 'less than 0.1';
+  return (Math.floor(n * 10) / 10).toFixed(1);
+}
+
+/** What custom quests can still earn today, together (shown to the player; never negative). */
+export function customQuestAllowanceLeft(state: UserState, now: Date): { energy: number; bond: number } {
+  const daily = dailyFor(state, now);
+  return {
+    energy: Math.max(0, DAILY_LIMITS.customQuestEnergy - daily.customQuestEnergy),
+    bond: roundGrowth(Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth)),
+  };
+}
+
+interface StepReward extends QuestReward {
+  /** What the quest has already paid today, and what reaching the new progress is worth (for the ledger). */
+  paid: QuestReward;
+  worth: QuestReward;
+  /** Nothing to pay because this progress was already rewarded today (a corrected or edited step). */
+  alreadyRewarded: boolean;
+  /** A custom quest's shared daily allowance cut the reward short. */
+  capped: boolean;
+}
+
+/**
+ * What reaching `progress` on `quest` pays today: only what goes beyond the
+ * quest's ledger, and for custom quests no more than the shared allowance has
+ * left. The one calculation behind both advanceQuest and what the screen shows.
+ */
+function stepReward(daily: DailyRewards, quest: Quest, progress: number): StepReward {
+  const paid = questPaid(daily, quest);
+  const worth = questRewardAt(quest, progress);
+  let energy = Math.max(0, worth.energy - paid.energy);
+  let growth = roundGrowth(Math.max(0, worth.growth - paid.growth));
+  const scales = Math.max(0, worth.scales - paid.scales);
+  const alreadyRewarded = energy === 0 && growth === 0 && scales === 0;
+  let capped = false;
+  if (quest.isCustom) {
+    const energyLeft = Math.max(0, DAILY_LIMITS.customQuestEnergy - daily.customQuestEnergy);
+    const growthLeft = Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth);
+    capped = energy > energyLeft || growth > growthLeft;
+    energy = Math.min(energy, energyLeft);
+    growth = Math.min(growth, growthLeft);
+  }
+  return { energy, growth, scales, paid, worth, alreadyRewarded, capped };
+}
+
+/** What the next tap on a quest would pay, and whether it would also count the day toward the streak. */
+export interface NextStepReward extends QuestReward {
+  /** This step was already rewarded today (after a correction or an edit): it pays nothing. */
+  alreadyRewarded: boolean;
+  /** Completing it would count today for the streak (nothing meaningful has counted today yet). */
+  countsForStreak: boolean;
+}
+
+/** What tapping `quest` once more would pay right now, exactly as advanceQuest would (see stepReward). */
+export function nextStepReward(state: UserState, quest: Quest, now: Date): NextStepReward {
+  const current = rollOverDay(state, now);
+  const fresh = current.quests.find(q => q.id === quest.id) ?? quest;
+  const daily = dailyFor(current, now);
+  const progress = Math.min(fresh.target, fresh.progress + 1);
+  const { energy, growth, scales, alreadyRewarded } = stepReward(daily, fresh, progress);
+  return { energy, growth, scales, alreadyRewarded, countsForStreak: progress === fresh.target && !daily.meaningfulActivity };
+}
+
+/**
  * One step (or more) on a quest. Each step pays only what goes beyond what the
  * quest has already been worth today (the daily ledger), so redoing a
  * corrected step, or changing a quest's target, never pays twice. Custom
@@ -531,27 +609,19 @@ export function advanceQuest(state: UserState, id: string, now: Date, increment 
   const progress = Math.min(quest.target, quest.progress + increment);
   const completed = progress === quest.target;
   const daily = dailyFor(current, now);
-  const paid = questPaid(daily, quest);
-  const worth = questRewardAt(quest, progress);
-  let energy = Math.max(0, worth.energy - paid.energy);
-  let growth = roundGrowth(Math.max(0, worth.growth - paid.growth));
-  const scales = Math.max(0, worth.scales - paid.scales);
-  const alreadyEarned = progress > quest.progress && energy === 0 && growth === 0 && scales === 0;
+  const step = stepReward(daily, quest, progress);
+  const { energy, growth, scales } = step;
+  const alreadyEarned = progress > quest.progress && step.alreadyRewarded;
 
-  let nextDaily: DailyRewards = { ...daily, questRewards: { ...daily.questRewards, [id]: maxReward(paid, worth) } };
+  let nextDaily: DailyRewards = { ...daily, questRewards: { ...daily.questRewards, [id]: maxReward(step.paid, step.worth) } };
   let message: string | undefined;
   if (quest.isCustom) {
-    const energyLeft = Math.max(0, DAILY_LIMITS.customQuestEnergy - daily.customQuestEnergy);
-    const growthLeft = Math.max(0, DAILY_LIMITS.customQuestGrowth - daily.customQuestGrowth);
-    const capped = energy > energyLeft || growth > growthLeft;
-    energy = Math.min(energy, energyLeft);
-    growth = Math.min(growth, growthLeft);
     nextDaily = {
       ...nextDaily,
       customQuestEnergy: roundGrowth(daily.customQuestEnergy + energy),
       customQuestGrowth: roundGrowth(daily.customQuestGrowth + growth),
     };
-    if (capped) {
+    if (step.capped) {
       const energyDone = nextDaily.customQuestEnergy >= DAILY_LIMITS.customQuestEnergy;
       const bondDone = nextDaily.customQuestGrowth >= DAILY_LIMITS.customQuestGrowth;
       message =

@@ -4,7 +4,7 @@ import { Check, Plus, X, Sparkles, Sun, Pill, Timer, Heart, Palette } from 'luci
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
 import { chipClasses, labelClasses } from '../lib/questColors';
-import { CUSTOM_QUEST_ENERGY_PER_STEP, CUSTOM_QUEST_TARGET_MAX, CustomQuestDetails, customQuestTarget } from '../lib/progression';
+import { CUSTOM_QUEST_ENERGY_PER_STEP, CUSTOM_QUEST_TARGET_MAX, CustomQuestDetails, DAILY_LIMITS, customQuestTarget, formatRewardAmount } from '../lib/progression';
 
 interface CustomQuestFormProps {
   onAdd: (quest: Quest) => void;
@@ -14,6 +14,8 @@ interface CustomQuestFormProps {
   /** Editing an existing quest: the form starts with its details and saves them. */
   editing?: Quest;
   onSave?: (details: CustomQuestDetails) => void;
+  /** What custom quests can still earn today, all together. */
+  allowanceLeft?: { energy: number; bond: number };
 }
 
 const DEFAULT_TYPES = [
@@ -34,7 +36,7 @@ const AVAILABLE_COLORS = [
   { label: 'Orange', value: 'text-orange-500 bg-orange-50' },
 ];
 
-export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType, editing, onSave }: CustomQuestFormProps) {
+export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType, editing, onSave, allowanceLeft }: CustomQuestFormProps) {
   const [title, setTitle] = useState(editing?.title ?? '');
   const [description, setDescription] = useState(editing?.description ?? '');
   const [target, setTarget] = useState(editing?.target ?? 1);
@@ -259,8 +261,18 @@ export function CustomQuestForm({ onAdd, onClose, customQuestTypes, onAddType, e
               max={CUSTOM_QUEST_TARGET_MAX}
               value={target}
               onChange={(e) => setTarget(parseInt(e.target.value) || 1)}
+              aria-describedby={`${fieldId}-allowance`}
               className="w-full px-4 py-3 rounded-xl bg-surface-muted border-none focus:ring-2 focus:ring-dragon-gold text-fg"
             />
+            <p id={`${fieldId}-allowance`} data-allowance className="text-xs text-fg-muted mt-2">
+              Each step can earn up to {CUSTOM_QUEST_ENERGY_PER_STEP} energy, subject to the shared daily allowance: up to{' '}
+              {DAILY_LIMITS.customQuestEnergy} energy and {DAILY_LIMITS.customQuestGrowth} Bond a day from all custom quests together.
+              Finishing one can still count toward your streak.
+              {allowanceLeft &&
+                (allowanceLeft.energy > 0 || allowanceLeft.bond > 0
+                  ? ` Left today: ${allowanceLeft.energy} energy and ${formatRewardAmount(allowanceLeft.bond)} Bond.`
+                  : " Today's is all earned.")}
+            </p>
           </div>
 
           <div>

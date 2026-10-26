@@ -11,7 +11,10 @@ import {
   correctQuest,
   createInitialState,
   CustomQuestDetails,
+  customQuestAllowanceLeft,
   dailyFor,
+  formatRewardAmount,
+  nextStepReward,
   dayKey,
   deleteCustomQuest,
   editCustomQuest,
@@ -40,6 +43,7 @@ import { FocusTimer } from './components/FocusTimer';
 import { SymptomCheckIn } from './components/SymptomCheckIn';
 import { MedicalDisclaimer } from './components/MedicalDisclaimer';
 import { Wardrobe } from './components/Wardrobe';
+import { wardrobeEnabled } from './lib/features';
 import { Insights } from './components/Insights';
 import { Badges } from './components/Badges';
 import { CustomQuestForm } from './components/CustomQuestForm';
@@ -462,6 +466,7 @@ export default function App() {
   };
 
   const handleBuyItem = (item: CosmeticItem) => {
+    if (!wardrobeEnabled()) return; // hidden for the alpha: nothing can be bought
     update(current => current.goldenScales < item.price ? current : {
       ...current,
       goldenScales: current.goldenScales - item.price,
@@ -470,6 +475,7 @@ export default function App() {
   };
 
   const handleEquipItem = (item: CosmeticItem) => {
+    if (!wardrobeEnabled()) return; // hidden for the alpha: what's equipped stays as saved
     update(current => {
       const isEquipped = current.equipped[item.category] === item.id;
       return {
@@ -709,6 +715,9 @@ export default function App() {
     );
   }
 
+  // What custom quests can still earn today, shown in the quest list and the quest form.
+  const customLeft = customQuestAllowanceLeft(state, new Date(nowMs));
+
   // The quest being edited, if it still exists (another tab may have deleted it).
   const editingQuest = (editingQuestId !== null && state.quests.find(q => q.id === editingQuestId)) || null;
 
@@ -748,7 +757,8 @@ export default function App() {
             isMeditating={isFocusActive}
             isPetted={isPetted}
             isLevelingUp={isLevelingUp}
-            equipped={state.equipped}
+            // Hidden for the alpha: equipped items stay saved, but placeholder art isn't drawn on Ember.
+            equipped={wardrobeEnabled() ? state.equipped : {}}
           />
 
           <BondingActions 
@@ -804,15 +814,14 @@ export default function App() {
                   <Plus className="w-3 h-3" /> Add Custom
                 </button>
               </div>
-              {state.quests.some(q => q.isCustom) && (
-                <CustomQuestEnergyNote left={Math.max(0, DAILY_LIMITS.customQuestEnergy - dailyFor(state, new Date()).customQuestEnergy)} />
-              )}
+              {state.quests.some(q => q.isCustom) && <CustomQuestEnergyNote left={customLeft} />}
               {state.quests.map((quest: Quest) => (
                 <QuestItem 
                   key={quest.id} 
                   quest={quest} 
                   onToggle={handleQuestTap}
                   rewardNoteId={CUSTOM_ENERGY_NOTE_ID}
+                  next={nextStepReward(state, quest, new Date(nowMs))}
                   onOptions={quest.isCustom || canCorrectQuest(state, quest, new Date(nowMs)) ? id => setQuestOptions({ id, view: 'menu' }) : undefined}
                   customQuestTypes={state.customQuestTypes}
                 />
@@ -845,7 +854,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {activeTab === 'wardrobe' && (
+          {activeTab === 'wardrobe' && wardrobeEnabled() && (
             <motion.div key="wardrobe" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
               <Wardrobe userState={state} onBuy={handleBuyItem} onEquip={handleEquipItem} />
             </motion.div>
@@ -876,6 +885,7 @@ export default function App() {
         <CustomQuestForm
           onAdd={handleAddCustomQuest}
           onClose={() => setShowCustomQuest(false)}
+          allowanceLeft={customLeft}
           customQuestTypes={state.customQuestTypes}
           onAddType={handleAddCustomType}
         />
@@ -907,6 +917,7 @@ export default function App() {
             onSave={details => handleEditQuest(editingQuest.id, details)}
             onAdd={() => {}}
             onClose={() => setEditingQuestId(null)}
+            allowanceLeft={customLeft}
             customQuestTypes={state.customQuestTypes}
             onAddType={handleAddCustomType}
           />
@@ -957,7 +968,9 @@ export default function App() {
           <NavButton active={activeTab === 'dashboard'} onClick={() => selectTab('dashboard')} icon={LayoutDashboard} label="Home" />
           <NavButton active={activeTab === 'focus'} onClick={() => selectTab('focus')} icon={Timer} label="Focus" />
           <NavButton active={activeTab === 'checkin'} onClick={() => selectTab('checkin')} icon={Heart} label="Check-in" />
-          <NavButton active={activeTab === 'wardrobe'} onClick={() => selectTab('wardrobe')} icon={ShoppingBag} label="Shop" />
+          {wardrobeEnabled() && (
+            <NavButton active={activeTab === 'wardrobe'} onClick={() => selectTab('wardrobe')} icon={ShoppingBag} label="Shop" />
+          )}
         </div>
       </nav>
     </div>
@@ -966,15 +979,26 @@ export default function App() {
 
 const CUSTOM_ENERGY_NOTE_ID = 'custom-quest-energy';
 
-/** Custom quests' shared daily energy limit (each custom quest row is described by this). */
-function CustomQuestEnergyNote({ left }: { left: number }) {
+/**
+ * Custom quests' shared daily allowance, and what's left of it today (each
+ * custom quest row is described by this). The Energy at the top is a total,
+ * which is a different thing from what can still be earned.
+ */
+function CustomQuestEnergyNote({ left }: { left: { energy: number; bond: number } }) {
+  const still = [left.energy > 0 && `${left.energy} energy`, left.bond > 0 && `${formatRewardAmount(left.bond)} Bond`].filter(Boolean);
+  const earned = left.energy > 0 ? (left.bond > 0 ? '' : ' Their Bond for today is all earned.') : left.bond > 0 ? ' Their energy for today is all earned.' : '';
   return (
-    <p id={CUSTOM_ENERGY_NOTE_ID} data-energy-left={left} className="text-xs text-fg-muted -mt-2">
-      Custom quests: +{CUSTOM_QUEST_ENERGY_PER_STEP} energy per step, up to {DAILY_LIMITS.customQuestEnergy} a day together.{' '}
-      {left > 0 ? `${left} left today.` : "Today's is all earned, and they still count for your streak."}
+    <p id={CUSTOM_ENERGY_NOTE_ID} data-energy-left={left.energy} className="text-xs text-fg-muted -mt-2">
+      Custom quests share one allowance: up to {DAILY_LIMITS.customQuestEnergy} energy and {DAILY_LIMITS.customQuestGrowth} Bond a day, all
+      together (+{CUSTOM_QUEST_ENERGY_PER_STEP} energy per step).{' '}
+      {still.length
+        ? `Today they can still add ${still.join(' and ')}.${earned}`
+        : "Today's is all earned, and they still count for your streak."}{' '}
+      The Energy at the top is your total so far.
     </p>
   );
 }
+
 
 function NavButton({ active, onClick, icon: Icon, label }: { active: boolean, onClick: () => void, icon: any, label: string }) {
   return (

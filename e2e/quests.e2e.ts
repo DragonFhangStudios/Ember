@@ -150,21 +150,121 @@ test.describe('custom quest rewards on screen', () => {
 
   test('show energy per step and the shared daily limit, never a total above it', async ({ page }) => {
     await expect(note(page), 'no note without custom quests').toHaveCount(0);
+    // The form explains the shared allowance, with what's left today.
+    await page.getByRole('button', { name: 'Add Custom' }).click();
+    await expect(page.getByLabel(/Target Steps/)).toHaveAccessibleDescription(
+      'Each step can earn up to 10 energy, subject to the shared daily allowance: up to 40 energy and 4 Bond a day from all custom quests together. Finishing one can still count toward your streak. Left today: 40 energy and 4 Bond.',
+    );
+    await page.keyboard.press('Escape');
     await addCustomQuest(page, 'Big one', 6);
     await addCustomQuest(page, 'Small one');
     await expect(quest(page, 'Big one').locator('[data-reward]')).toHaveText('+10/step');
     await expect(quest(page, 'Small one').locator('[data-reward]')).toHaveText('+10');
     await expect(quest(page, 'Big one')).not.toContainText('+60');
     await expect(quest(page, 'Hydration Goal').locator('[data-reward]'), 'built-in quests unchanged').toHaveText('+20');
-    await expect(note(page)).toHaveText('Custom quests: +10 energy per step, up to 40 a day together. 40 left today.');
-    await expect(quest(page, 'Big one')).toHaveAccessibleDescription(/up to 40 a day together/);
-    await expect(quest(page, 'Morning Routine')).not.toHaveAccessibleDescription(/40 a day/);
+    await expect(note(page)).toHaveText(
+      'Custom quests share one allowance: up to 40 energy and 4 Bond a day, all together (+10 energy per step). Today they can still add 40 energy and 4 Bond. The Energy at the top is your total so far.',
+    );
+    await expect(quest(page, 'Big one')).toHaveAccessibleDescription(/up to 40 energy and 4 Bond a day/);
+    await expect(quest(page, 'Morning Routine')).not.toHaveAccessibleDescription(/40 energy/);
 
     await tapTimes(page, 'Big one', 3);
-    await expect(note(page)).toContainText('10 left today.');
-    await tapTimes(page, 'Big one', 1);
-    await expect(note(page)).toContainText("Today's is all earned, and they still count for your streak.");
+    await expect(note(page)).toContainText('Today they can still add 10 energy and 3 Bond.'); // a 6-step quest pays 1/3 Bond a step
+    await tapTimes(page, 'Big one', 1); // energy allowance used; Bond is left
+    await expect(note(page)).toContainText('Today they can still add 2.6 Bond. Their energy for today is all earned.'); // 2.67, rounded down
+    await expect(quest(page, 'Small one').locator('[data-reward]')).toHaveText('Bond only');
     expect((await saved(page)).energy, 'what was shown is what was paid').toBe(90);
+    await tapTimes(page, 'Small one', 1);
+    await addCustomQuest(page, 'Last one');
+    await tapTimes(page, 'Last one', 1);
+    await expect(note(page)).toContainText("Today's is all earned, and they still count for your streak.");
+    // Nothing more to earn today, so nothing is promised; done quests show no amount.
+    // Big one's next step wouldn't complete it, and today has already counted: no streak promised either.
+    await expect(quest(page, 'Big one').locator('[data-reward]')).toHaveText('Daily max reached');
+    await expect(quest(page, 'Small one').locator('[data-reward]'), 'a done custom quest shows no amount').toHaveCount(0);
+    expect((await saved(page)).energy, 'no energy after the allowance').toBe(90);
+    await page.getByRole('button', { name: 'Add Custom' }).click();
+    await expect(page.getByLabel(/Target Steps/)).toHaveAccessibleDescription(/Today's is all earned\.$/);
+  });
+
+  test('never promise more than is left today', async ({ page }) => {
+    await addCustomQuest(page, 'Most of it', 3);
+    await addCustomQuest(page, 'Last bit');
+    await tapTimes(page, 'Most of it', 3); // 30 of 40
+    await addCustomQuest(page, 'Half step', 2);
+    await editSave(page, 'state.daily.customQuestEnergy = 35;'); // 5 left, as after an odd mix of steps
+    await page.reload();
+    await waitForApp(page);
+    await expect(quest(page, 'Last bit').locator('[data-reward]')).toHaveText('+5');
+    await expect(quest(page, 'Half step').locator('[data-reward]'), 'no "/step" when a step would earn less').toHaveText('+5');
+
+    // A tiny bit of Bond left is never shown as none.
+    await editSave(page, 'state.daily.customQuestEnergy = 40; state.daily.customQuestGrowth = 3.98;');
+    await page.reload();
+    await waitForApp(page);
+    await expect(page.locator('#custom-quest-energy')).toContainText('Today they can still add less than 0.1 Bond.');
+
+    // Allowance used up (an imported save, say) before anything counted today: completing still counts the day.
+    await editSave(page, 'state.daily.customQuestEnergy = 40; state.daily.customQuestGrowth = 4; state.daily.meaningfulActivity = false;');
+    await page.reload();
+    await waitForApp(page);
+    await expect(quest(page, 'Last bit').locator('[data-reward]')).toHaveText('Streak only');
+    await expect(quest(page, 'Half step').locator('[data-reward]'), 'its next step would not complete it').toHaveText('Daily max reached');
+  });
+
+  test('a corrected step shows "Already rewarded", and a badge always promises exactly what the next tap pays', async ({ page }) => {
+    const badge = (title: string) => quest(page, title).locator('[data-reward]');
+    const markNotDone = async (title: string) => {
+      await quest(page, title).click();
+      await dialog(page).getByRole('button', { name: 'Mark as not done' }).click();
+      await expect(dialog(page)).toHaveCount(0);
+    };
+    /** Energy the badge promises for the next tap: its number, or 0 for a word like "Already rewarded". */
+    const promised = async (title: string) => Number(/^\+(\d+)/.exec((await badge(title).textContent()) ?? '')?.[1] ?? 0);
+    /** Taps once; the energy actually paid. */
+    const paid = async (title: string) => {
+      const before = (await saved(page)).energy;
+      await tapTimes(page, title, 1);
+      return (await saved(page)).energy - before;
+    };
+    const expectHonest = async (title: string, label: string) => {
+      const shown = await badge(title).textContent(); // read before tapping (a done custom quest shows no badge)
+      const promise = await promised(title);
+      expect(await paid(title), `${label}: paid what "${shown}" promised`).toBe(promise);
+    };
+
+    // A custom quest: complete, correct, redisplay, re-complete.
+    await addCustomQuest(page, 'Water plants');
+    await expect(badge('Water plants')).toHaveText('+10');
+    await expectHonest('Water plants', 'first completion');
+    await markNotDone('Water plants');
+    await expect(badge('Water plants')).toHaveText('Already rewarded');
+    await expectHonest('Water plants', 'redone after a correction');
+
+    // The same for a built-in quest.
+    await expectHonest('Morning Routine', 'built-in first completion');
+    await markNotDone('Morning Routine');
+    await expect(badge('Morning Routine')).toHaveText('Already rewarded');
+    await expectHonest('Morning Routine', 'built-in redone');
+
+    // Editing a done quest's target: the badge shows what the next step really pays.
+    await options(page, 'Water plants').click();
+    await dialog(page).getByRole('button', { name: 'Edit Quest' }).click();
+    await page.getByLabel(/Target Steps/).fill('2');
+    await page.getByRole('dialog', { name: 'Edit Quest' }).getByRole('button', { name: 'Save Changes' }).click();
+    await expect(quest(page, 'Water plants')).toContainText('1/2');
+    await expectHonest('Water plants', 'after raising the target');
+
+    // A multi-step quest corrected one step back.
+    await addCustomQuest(page, 'Three sips', 3);
+    await tapTimes(page, 'Three sips', 2);
+    await options(page, 'Three sips').click();
+    await dialog(page).getByRole('button', { name: /Undo one step/ }).click();
+    await dialog(page).getByRole('button', { name: 'Undo one step' }).click();
+    await expect(quest(page, 'Three sips')).toContainText('1/3');
+    await expect(badge('Three sips')).toHaveText('Already rewarded');
+    await expectHonest('Three sips', 'a step redone');
+    await expectHonest('Three sips', 'the next new step');
   });
 
   test('are readable in light and dark mode', async ({ page }) => {
@@ -452,7 +552,9 @@ test.describe('check-in notes', () => {
   test('a check-in without a note works as before', async ({ page }) => {
     await goToTab(page, 'Check-in');
     await page.getByRole('button', { name: 'Log Check-in' }).click();
-    await expect(page.getByRole('heading', { name: 'Check-in Logged' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Check-in saved!' })).toBeVisible();
+    await expect(page.getByText("Thanks for taking a moment to see how you're feeling today. ❤️")).toBeVisible();
+    await expect(page.getByText(/doctor/)).toHaveCount(0);
     const s = await saved(page);
     expect(s.symptomLogs[0]).not.toHaveProperty('notes');
     expect(s.energy).toBe(55);

@@ -34,8 +34,9 @@ test('no third-party requests on any screen or dialog, and everything still work
 
   await page.getByText('Morning Routine').click();
   await expect(page.getByRole('status')).toContainText('Today counts');
-  for (const tab of ['Focus', 'Check-in', 'Shop'] as const) await goToTab(page, tab);
-  await expect(page.getByRole('heading', { name: 'Dragon Wardrobe' })).toBeVisible();
+  // The Shop is hidden for the alpha; wardrobe.e2e.ts checks its pictures are local.
+  for (const tab of ['Focus', 'Check-in'] as const) await goToTab(page, tab);
+  await expect(page.getByRole('heading', { name: 'Daily Check-in' })).toBeVisible();
   await expect.poll(() => images.evaluateAll(imgs => imgs.every(i => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0))).toBe(true);
   await goToTab(page, 'Check-in');
   await page.getByRole('button', { name: 'Log Check-in' }).click();

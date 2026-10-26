@@ -3,6 +3,7 @@ import * as LucideIcons from 'lucide-react';
 import { CheckCircle2, Circle, MoreVertical, Pill, Timer, Sun, Heart, Sparkles } from 'lucide-react';
 import { Quest, QuestType, CustomQuestType } from '../types';
 import { cn } from '../lib/utils';
+import type { NextStepReward } from '../lib/progression';
 import { chipClasses } from '../lib/questColors';
 
 interface QuestItemProps {
@@ -12,6 +13,8 @@ interface QuestItemProps {
   onOptions?: (id: string) => void;
   /** For custom quests: the id of the note on their shared daily energy limit. */
   rewardNoteId?: string;
+  /** What tapping this quest once more would pay right now (see nextStepReward). */
+  next?: NextStepReward;
   customQuestTypes?: CustomQuestType[];
   key?: string | number;
 }
@@ -32,12 +35,24 @@ const TYPE_COLORS: Record<string, string> = {
   custom: 'text-purple-500 bg-purple-50',
 };
 
-export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, customQuestTypes = [] }: QuestItemProps) {
+export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, next, customQuestTypes = [] }: QuestItemProps) {
   const customType = customQuestTypes.find(t => t.id === quest.type);
   
   const IconComponent = customType 
     ? (LucideIcons[customType.icon as keyof typeof LucideIcons] as any) || Sparkles
     : TYPE_ICONS[quest.type] || Sparkles;
+
+  const perStepEnergy = Math.round(quest.points / quest.target);
+  // A quest still to do promises only what its next step really pays (the same calculation as the
+  // tap itself). A done custom quest shows no amount: it may have been done after the allowance ran out.
+  const showReward = !(quest.isCustom && quest.completed);
+  const rewardWord = quest.completed || !next ? null
+    : next.alreadyRewarded ? 'Already rewarded'
+    : !quest.isCustom || next.energy > 0 ? null
+    : next.growth > 0 ? 'Bond only'
+    : next.countsForStreak ? 'Streak only'
+    : 'Daily max reached';
+  const energyShown = quest.isCustom ? (quest.completed || !next ? perStepEnergy : next.energy) : quest.points;
 
   const colorClass = customType 
     ? customType.color 
@@ -95,18 +110,21 @@ export function QuestItem({ quest, onToggle, onOptions, rewardNoteId, customQues
         </span>
 
         <span className="flex flex-col items-end gap-1 flex-shrink-0">
-          <span className="flex items-center gap-1 text-gold-fg font-bold text-sm" data-reward>
-            {/* Custom quests show their rate: energy per step, under a shared daily limit. */}
-            {quest.isCustom ? (
-              <span>
-                +{Math.round(quest.points / quest.target)}
-                {isMultiStep && <span className="text-xs">/step</span>}
-              </span>
-            ) : (
-              <span>+{quest.points}</span>
-            )}
-            <span className="w-2 h-2 rounded-full bg-dragon-gold" />
-          </span>
+          {showReward && (
+            <span className="flex items-center gap-1 text-gold-fg font-bold text-sm" data-reward>
+              {rewardWord ? (
+                <span className="text-xs">{rewardWord}</span>
+              ) : (
+                <>
+                  <span>
+                    +{energyShown}
+                    {quest.isCustom && isMultiStep && energyShown === perStepEnergy && <span className="text-xs">/step</span>}
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-dragon-gold" />
+                </>
+              )}
+            </span>
+          )}
           {quest.completed ? (
             <CheckCircle2 className="w-6 h-6 text-dragon-gold" />
           ) : (

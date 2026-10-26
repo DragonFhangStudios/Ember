@@ -51,10 +51,8 @@ export function SymptomCheckIn({ onComplete, checkedInToday, today, day }: Sympt
         <div className="bg-rose-500/10 p-4 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
           <Heart className="w-8 h-8 text-rose-500 fill-rose-500" />
         </div>
-        <h3 className="serif text-xl font-bold text-fg mb-2">Check-in Logged</h3>
-        <p className="text-sm text-fg-muted">
-          Patterns help you and your doctor. Great job checking in with yourself!
-        </p>
+        <h3 className="serif text-xl font-bold text-fg mb-2">Check-in saved!</h3>
+        <p className="text-sm text-fg-muted">Thanks for taking a moment to see how you're feeling today. ❤️</p>
         <button
           onClick={startUpdate}
           className="mt-4 min-h-11 px-4 text-xs font-bold text-gold-fg uppercase tracking-widest hover:text-ember-fg transition-colors"

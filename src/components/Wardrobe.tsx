@@ -51,6 +51,8 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
               {isOwned ? (
                 <button
                   onClick={() => onEquip(item)}
+                  aria-label={isEquipped ? `${item.name}, equipped` : `Equip ${item.name}`}
+                  aria-pressed={isEquipped}
                   className={cn(
                     "min-h-11 min-w-11 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center",
                     isEquipped 
@@ -64,6 +66,7 @@ export function Wardrobe({ userState, onBuy, onEquip }: WardrobeProps) {
                 <button
                   onClick={() => onBuy(item)}
                   disabled={!canAfford}
+                  aria-label={`Buy ${item.name} for ${item.price} Golden Scales`}
                   className={cn(
                     "min-h-11 min-w-11 px-4 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1",
                     canAfford 
