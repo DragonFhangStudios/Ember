@@ -5,6 +5,7 @@ import { sanitizeFocusSession } from './focusTimer';
 import {
   LEGACY_BOND_KEY,
   LOCAL_BOND_KEY,
+  STAGE_ORDER,
   activeDaysThreshold,
   addActiveDay,
   addBond,
@@ -204,11 +205,13 @@ export function recordActiveDay(state: UserState, day: Date): { state: UserState
   const gap = state.lastActiveDay ? daysBetween(state.lastActiveDay, day) : Infinity;
   const activity = addActiveDay(state.activity, isoDay(day));
   const stage = higherStage(state.stage, stageForActiveDays(lifetimeActiveDays(activity)));
-  if (gap <= 0) return { state: { ...state, activity, stage }, gap };
+  const reached = stage === state.stage ? {} : { stageReachedOn: { ...state.stageReachedOn, [stage]: isoDay(day) } };
+  if (gap <= 0) return { state: { ...state, activity, stage, ...reached }, gap };
   const currentStreak = gap === 1 ? state.currentStreak + 1 : 1;
   return {
     state: {
       ...state,
+      ...reached,
       activity,
       stage,
       currentStreak,
@@ -286,6 +289,8 @@ export function createInitialState(now: Date): UserState {
     completedFocusSessions: [],
     focusSessionsCompleted: 0,
     theme: 'system',
+    stageSeen: DragonStage.EGG,
+    stageReachedOn: {},
   };
 }
 
@@ -499,7 +504,36 @@ export function migrateState(raw: unknown, now: Date): UserState {
     focusSessionsCompleted: Math.max(Math.floor(num(saved.focusSessionsCompleted, 0)), completedFocusSessions.length),
     // v8: light/dark preference (isDarkMode before).
     theme: themePreferenceOf(saved),
+    // Evolution reveals: a save without a seen stage (from before reveals)
+    // has seen everything it reached, so nothing old is announced.
+    stageSeen: stageSeenOf(saved.stageSeen, stage),
+    stageReachedOn: stageReachedOnOf(saved.stageReachedOn),
   };
+}
+
+const isStage = (value: unknown): value is DragonStage => STAGE_ORDER.includes(value as DragonStage);
+
+/** The saved seen stage, never beyond the stage actually reached; absent or invalid = all of it. */
+function stageSeenOf(value: unknown, stage: DragonStage): DragonStage {
+  if (!isStage(value)) return stage;
+  return STAGE_ORDER.indexOf(value) < STAGE_ORDER.indexOf(stage) ? value : stage;
+}
+
+/** A YYYY-MM-DD string naming a real calendar day (not 2026-02-30 or 2026-13-01). */
+function isCalendarDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.getFullYear() === y && date.getMonth() === m - 1 && date.getDate() === d;
+}
+
+function stageReachedOnOf(value: unknown): Partial<Record<DragonStage, string>> {
+  const out: Partial<Record<DragonStage, string>> = {};
+  if (!value || typeof value !== 'object') return out;
+  for (const [stage, day] of Object.entries(value as Record<string, unknown>)) {
+    if (isStage(stage) && isCalendarDay(day)) out[stage] = day;
+  }
+  return out;
 }
 
 /**

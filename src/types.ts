@@ -152,4 +152,13 @@ export interface UserState {
   focus: FocusSession | null;
   completedFocusSessions: string[]; // ids already rewarded (bounded; see progression.ts)
   focusSessionsCompleted: number; // lifetime count, never lowered (Zen Master); not bounded like the ids
+  /**
+   * The highest stage whose evolution reveal the player has seen (see
+   * lib/milestones.ts). A later stage waits as a pending reveal until viewed.
+   * Saves from before reveals don't have it: every stage they reached counts
+   * as seen, so upgrading or importing one never announces old evolutions.
+   */
+  stageSeen?: DragonStage;
+  /** The local day (YYYY-MM-DD) each stage was reached, when known (recorded from reveals on). */
+  stageReachedOn?: Partial<Record<DragonStage, string>>;
 }
