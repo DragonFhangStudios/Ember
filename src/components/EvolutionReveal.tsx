@@ -2,17 +2,13 @@ import { useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { DragonStage } from '../types';
 import { DRAGON_STAGES_DATA } from '../constants';
-import { evolutionLine } from '../lib/milestones';
+import { RevealView, evolutionLine } from '../lib/milestones';
 import { CELEBRATION_MS, Celebration } from './Celebration';
 import { Dialog } from './Dialog';
 import { SpeechText } from './FeedbackToast';
 import { cn } from '../lib/utils';
 
-/** A reveal being shown: the first time (seeing it marks it seen), or a replay from Milestones. */
-export interface RevealView {
-  stage: DragonStage;
-  replay: boolean;
-}
+export type { RevealView };
 
 /** "Wednesday, October 21" for a stored YYYY-MM-DD local day. */
 function formatDay(isoDay: string): string {
@@ -52,29 +48,32 @@ interface EvolutionRevealProps {
   dragonName: string;
   /** When each stage was reached, if known. */
   reachedOn?: Partial<Record<DragonStage, string>>;
-  onClose: () => void;
+  /** Finish (Close on a replay): the player is done with it. */
+  onFinish: () => void;
+  /** Escape or the backdrop: set aside for now, not finished. */
+  onDismiss: () => void;
 }
 
 /**
  * The evolution reveal: the stage's picture, what the dragon says, and an
  * explicit way to finish. Nothing closes it on a timer; Escape and the
- * backdrop close it too. Viewing it never grants anything.
+ * backdrop set it aside without finishing it. Viewing it never grants anything.
  */
-export function EvolutionReveal({ reveal, dragonName, reachedOn, onClose }: EvolutionRevealProps) {
+export function EvolutionReveal({ reveal, dragonName, reachedOn, onFinish, onDismiss }: EvolutionRevealProps) {
   return (
     <Dialog
       open={!!reveal}
-      onClose={onClose}
+      onClose={onDismiss}
       labelledBy="evolution-title"
       describedBy="evolution-description"
       panelClassName="max-w-md max-h-[90vh] overflow-y-auto bg-surface rounded-3xl shadow-2xl border border-line p-6 text-center"
     >
-      {reveal && <RevealContent reveal={reveal} dragonName={dragonName} reachedOn={reachedOn?.[reveal.stage]} onClose={onClose} />}
+      {reveal && <RevealContent reveal={reveal} dragonName={dragonName} reachedOn={reachedOn?.[reveal.stage]} onFinish={onFinish} />}
     </Dialog>
   );
 }
 
-function RevealContent({ reveal, dragonName, reachedOn, onClose }: { reveal: RevealView; dragonName: string; reachedOn?: string; onClose: () => void }) {
+function RevealContent({ reveal, dragonName, reachedOn, onFinish }: { reveal: RevealView; dragonName: string; reachedOn?: string; onFinish: () => void }) {
   const { stage, replay } = reveal;
   const [glow, setGlow] = useState(true);
   useEffect(() => {
@@ -113,7 +112,7 @@ function RevealContent({ reveal, dragonName, reachedOn, onClose }: { reveal: Rev
       <button
         type="button"
         data-autofocus
-        onClick={onClose}
+        onClick={onFinish}
         className="mt-6 w-full min-h-12 rounded-2xl font-bold bg-ember-solid text-white hover:opacity-90"
       >
         {replay ? 'Close' : 'Finish'}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DragonStage, UserState } from '../types';
 import { advanceQuest, createInitialState, migrateState, rollOverDay } from './progression';
-import { evolutionLine, pendingEvolution, seeEvolution, stagesReached } from './milestones';
+import { afterReveal, evolutionLine, pendingEvolution, seeEvolution, stagesReached } from './milestones';
 
 const { EGG, HATCHLING, FLEDGLING, DRAKE } = DragonStage;
 const day = (d: number, hour = 10) => new Date(2026, 9, d, hour);
@@ -35,6 +35,27 @@ describe('evolution reveals: a new stage waits until the player sees it', () => 
     // Seeing it again (a replay, or another tab) changes nothing at all.
     expect(seeEvolution(seen, HATCHLING)).toBe(seen);
     expect(seeEvolution(seen, EGG)).toBe(seen);
+  });
+
+  it('setting a new reveal aside (Escape, the backdrop) keeps it waiting through a reload; only Finish marks it seen', () => {
+    const hatched = hatchingDay();
+    const view = { stage: HATCHLING, replay: false };
+    const dismissed = afterReveal(hatched, view, 'dismissed');
+    expect(dismissed).toBe(hatched);
+    const reloaded = reload(dismissed, day(21, 20));
+    expect(pendingEvolution(reloaded), 'still waiting after a reload').toBe(HATCHLING);
+    const finished = afterReveal(reloaded, view, 'finished');
+    expect(pendingEvolution(finished)).toBeNull();
+    expect(pendingEvolution(reload(finished, day(22)))).toBeNull();
+  });
+
+  it('a replay never changes the save, however it closes', () => {
+    const seen = seeEvolution({ ...hatchingDay(), stage: FLEDGLING }, HATCHLING);
+    for (const end of ['finished', 'dismissed'] as const) {
+      expect(afterReveal(seen, { stage: HATCHLING, replay: true }, end)).toBe(seen);
+      expect(afterReveal(seen, { stage: EGG, replay: true }, end)).toBe(seen);
+    }
+    expect(pendingEvolution(seen), 'a replay of an earlier stage leaves the new one waiting').toBe(FLEDGLING);
   });
 
   it('two tabs finishing in any order agree, and nothing past the reached stage is marked seen', () => {
@@ -72,6 +93,10 @@ describe('evolution reveals: a new stage waits until the player sees it', () => 
     const odd = reload({ ...base, stageSeen: 'Dragonlord' as DragonStage, stageReachedOn: { Hatchling: 'yesterday', Bogus: '2026-10-01', Egg: '2026-10-20' } as never }, day(22));
     expect(odd.stageSeen, 'unreadable = already seen').toBe(HATCHLING);
     expect(odd.stageReachedOn).toEqual({ [EGG]: '2026-10-20' });
+    // Well-formed but impossible dates are dropped too; real ones (a leap day) are kept.
+    const dates = reload({ ...base, stageReachedOn: { Egg: '2026-02-30', Hatchling: '2026-13-01', Fledgling: '2026-00-10', Drake: '2028-02-29' } as never }, day(22));
+    expect(dates.stageReachedOn).toEqual({ [DRAKE]: '2028-02-29' });
+    expect(reload({ ...base, stageReachedOn: { Egg: '2027-02-29' } as never }, day(22)).stageReachedOn).toEqual({});
     expect(reload({ ...base, stageSeen: DRAKE }, day(22)).stageSeen, 'never beyond the stage reached').toBe(HATCHLING);
   });
 

@@ -47,7 +47,7 @@ import { wardrobeEnabled } from './lib/features';
 import { Insights } from './components/Insights';
 import { Badges } from './components/Badges';
 import { EvolutionInvite, EvolutionJourney, EvolutionReveal, RevealView } from './components/EvolutionReveal';
-import { pendingEvolution, seeEvolution, stagesReached } from './lib/milestones';
+import { RevealEnd, afterReveal, pendingEvolution, stagesReached } from './lib/milestones';
 import { CustomQuestForm } from './components/CustomQuestForm';
 import { QuestOptions, QuestOptionsView } from './components/QuestOptions';
 import { DailyDragonFact } from './components/DailyDragonFact';
@@ -643,22 +643,24 @@ export default function App() {
 
   const closeSettings = useCallback(() => setShowSettings(false), []);
 
-  // On a phone the tab content sits below the dragon, so bring it into view
-  // when the player picks a tab (Home goes back to the top).
   const openReveal = (stage: DragonStage) => {
     if (state) setReveal({ stage, replay: stage !== pendingEvolution(state) });
   };
 
-  // Finishing a first reveal (or closing it any way) marks it seen, in one
-  // transaction, so every tab agrees. A replay changes nothing.
-  const closeReveal = () => {
-    if (reveal && !reveal.replay) {
-      const { stage } = reveal;
-      update(current => seeEvolution(current, stage));
-    }
+  // Only Finish marks a first reveal seen, in one transaction, so every tab
+  // agrees. Setting it aside (Escape, the backdrop) keeps it waiting in
+  // Milestones and hides the invitation for this visit, like Later. A replay
+  // changes nothing.
+  const closeReveal = (end: RevealEnd) => {
+    const view = reveal;
     setReveal(null);
+    if (!view || view.replay) return;
+    if (end === 'finished') update(current => afterReveal(current, view, end));
+    else setRevealLater(view.stage);
   };
 
+  // On a phone the tab content sits below the dragon, so bring it into view
+  // when the player picks a tab (Home goes back to the top).
   const selectTab = (tab: Tab) => {
     setActiveTab(tab);
     const behavior: ScrollBehavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
@@ -999,7 +1001,13 @@ export default function App() {
           ) : null
         }
       />
-      <EvolutionReveal reveal={reveal} dragonName={state.dragonName} reachedOn={state.stageReachedOn} onClose={closeReveal} />
+      <EvolutionReveal
+        reveal={reveal}
+        dragonName={state.dragonName}
+        reachedOn={state.stageReachedOn}
+        onFinish={() => closeReveal('finished')}
+        onDismiss={() => closeReveal('dismissed')}
+      />
 
       <nav aria-label="Main" className="nav-safe fixed bottom-0 left-0 right-0 bg-surface/80 backdrop-blur-lg border-t border-line z-50 transition-colors">
         <div className="max-w-2xl mx-auto h-[var(--nav-height)] flex items-stretch px-2">

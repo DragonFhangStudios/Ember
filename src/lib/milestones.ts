@@ -24,6 +24,24 @@ export function seeEvolution(state: UserState, stage: DragonStage): UserState {
   return seen === state.stageSeen ? state : { ...state, stageSeen: seen };
 }
 
+/** A reveal being shown: the first time, or a replay from Milestones. */
+export interface RevealView {
+  stage: DragonStage;
+  replay: boolean;
+}
+
+/** How a reveal closed: Finish, or set aside for now (Escape, the backdrop). */
+export type RevealEnd = 'finished' | 'dismissed';
+
+/**
+ * The save after a reveal closes. Only Finish on a first reveal marks it
+ * seen; setting it aside keeps it waiting (in Milestones), and a replay
+ * changes nothing.
+ */
+export function afterReveal(state: UserState, view: RevealView, end: RevealEnd): UserState {
+  return !view.replay && end === 'finished' ? seeEvolution(state, view.stage) : state;
+}
+
 /** Every stage reached so far, first to current. */
 export function stagesReached(state: UserState): DragonStage[] {
   return STAGE_ORDER.slice(0, order(state.stage) + 1);

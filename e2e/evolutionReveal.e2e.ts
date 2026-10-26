@@ -81,14 +81,15 @@ test('hatching while scrolled down to Daily Quests is never missed: the invitati
   await expect(invite(page), 'seen stays seen').toHaveCount(0);
 });
 
-test('"Later" puts it off without losing it: Milestones offers it, and the keyboard can open and close it', async ({ page }) => {
+test('"Later" and setting the reveal aside keep it waiting: Milestones offers it, a reload brings it back, only Finish marks it seen', async ({ page }) => {
+  test.slow();
   await hatchFromQuestList(page);
   await invite(page).getByRole('button', { name: 'Later' }).click();
   await expect(invite(page)).toHaveCount(0);
   expect((await saved(page)).stageSeen, 'putting it off saves nothing').toBe('Egg');
 
-  const milestones = page.getByRole('button', { name: 'Milestones (something new)' });
-  await milestones.click();
+  // Opened from Milestones with the keyboard, then set aside with Escape.
+  await page.getByRole('button', { name: 'Milestones (something new)' }).click();
   const waiting = page.getByRole('button', { name: 'See what happened: Ember became a Hatchling' });
   await waiting.focus();
   await page.keyboard.press('Enter');
@@ -96,9 +97,31 @@ test('"Later" puts it off without losing it: Milestones offers it, and the keybo
   await expect(reveal(page).getByRole('button', { name: 'Finish' }), 'focus starts on Finish').toBeFocused();
   await page.keyboard.press('Escape');
   await expect(reveal(page)).toHaveCount(0);
-  await expect.poll(async () => (await saved(page)).stageSeen, 'closing it counts as seen').toBe('Hatchling');
-  await expect(page.getByRole('button', { name: 'Milestones', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Watch again: Hatchling' }), 'focus returns to the journey').toBeFocused();
+  await expect(waiting, 'still offered in Milestones, and focus returns to it').toBeFocused();
+  await expect(invite(page), 'the invitation stays hidden for this visit').toHaveCount(0);
+  expect((await saved(page)).stageSeen, 'Escape saved nothing').toBe('Egg');
+
+  // After a reload the invitation is back; this time the backdrop sets it aside.
+  await page.reload();
+  await waitForApp(page);
+  await invite(page).getByRole('button', { name: 'See what happened' }).click();
+  await expect(reveal(page)).toBeVisible();
+  await page.mouse.click(4, 4);
+  await expect(reveal(page)).toHaveCount(0);
+  await expect(invite(page)).toHaveCount(0);
+  await page.reload();
+  await waitForApp(page);
+  expect((await saved(page)).stageSeen, 'the backdrop saved nothing').toBe('Egg');
+
+  // Coming back to it and finishing it marks it seen for good.
+  await invite(page).getByRole('button', { name: 'See what happened' }).click();
+  await reveal(page).getByRole('button', { name: 'Finish' }).click();
+  await expect.poll(async () => (await saved(page)).stageSeen).toBe('Hatchling');
+  await page.reload();
+  await waitForApp(page);
+  await expect(invite(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Milestones', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Watch again: Hatchling' })).toBeVisible();
 });
 
 test('replaying a reveal from Milestones grants nothing and changes nothing', async ({ page }) => {
