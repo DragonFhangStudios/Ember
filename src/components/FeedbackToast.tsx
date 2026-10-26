@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, X } from 'lucide-react';
 import { CELEBRATION_MS, Celebration } from './Celebration';
@@ -14,6 +14,8 @@ interface FeedbackToastProps {
   /** A save that failed. Stays until dismissed or the next save succeeds. */
   error: string | null;
   onDismissError: () => void;
+  /** A gentle, lasting invitation (an evolution waiting to be seen), under any messages. */
+  invite?: ReactNode;
 }
 
 /**
@@ -32,7 +34,7 @@ function MessageCelebration() {
 }
 
 /** Ember's words, with *narrated actions* in italics. */
-function SpeechText({ text }: { text: string }) {
+export function SpeechText({ text }: { text: string }) {
   return (
     <>
       {text.split(/(\*[^*]+\*)/).filter(Boolean).map((part, i) =>
@@ -42,7 +44,7 @@ function SpeechText({ text }: { text: string }) {
   );
 }
 
-export function FeedbackToast({ speech = null, message, celebrate = false, error, onDismissError }: FeedbackToastProps) {
+export function FeedbackToast({ speech = null, message, celebrate = false, error, onDismissError, invite = null }: FeedbackToastProps) {
   const shown = speech || message;
   return (
     <div className="feedback-above-nav fixed inset-x-0 z-[60] px-4 pointer-events-none">
@@ -83,6 +85,8 @@ export function FeedbackToast({ speech = null, message, celebrate = false, error
             )}
           </AnimatePresence>
         </div>
+        {/* Always rendered, so the invitation is announced when it appears. */}
+        <div aria-live="polite">{invite}</div>
       </div>
     </div>
   );

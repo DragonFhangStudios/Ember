@@ -39,7 +39,9 @@ const TABBABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabin
  * of it closes too), to whatever opened the dialog the opener was in.
  */
 function restoreFocus(opener: HTMLElement | null) {
-  for (let target = opener; target; ) {
+  const tried = new Set<HTMLElement>();
+  for (let target = opener; target && !tried.has(target); ) {
+    tried.add(target);
     if (target.isConnected) {
       target.focus();
       if (document.activeElement === target) return;
@@ -59,7 +61,10 @@ function OpenDialog({ onClose, labelledBy, describedBy, variant = 'center', pane
 
   useEffect(() => {
     const dialog = ref.current!;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Never the dialog's own control (its opener may be gone, e.g. an
+    // invitation that disappears once the dialog opens).
+    const active = document.activeElement;
+    const opener = active instanceof HTMLElement && !dialog.contains(active) ? active : null;
     openers.set(dialog, opener);
     closingRef.current = false;
     dialog.showModal();

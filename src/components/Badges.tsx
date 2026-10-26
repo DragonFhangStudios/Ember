@@ -1,3 +1,4 @@
+import { ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { Trophy, Lock } from 'lucide-react';
 import { Badge } from '../types';
@@ -5,15 +6,19 @@ import { cn } from '../lib/utils';
 
 interface BadgesProps {
   badges: Badge[];
+  /** Shown under the heading, above the badges (the dragon's journey). */
+  children?: ReactNode;
 }
 
-export function Badges({ badges }: BadgesProps) {
+export function Badges({ badges, children }: BadgesProps) {
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-2 text-gold-fg mb-6">
         <Trophy className="w-6 h-6" />
         <h2 className="serif text-2xl font-bold">Milestones</h2>
       </div>
+
+      {children}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {badges.map((badge) => {

@@ -46,6 +46,8 @@ import { Wardrobe } from './components/Wardrobe';
 import { wardrobeEnabled } from './lib/features';
 import { Insights } from './components/Insights';
 import { Badges } from './components/Badges';
+import { EvolutionInvite, EvolutionJourney, EvolutionReveal, RevealView } from './components/EvolutionReveal';
+import { pendingEvolution, seeEvolution, stagesReached } from './lib/milestones';
 import { CustomQuestForm } from './components/CustomQuestForm';
 import { QuestOptions, QuestOptionsView } from './components/QuestOptions';
 import { DailyDragonFact } from './components/DailyDragonFact';
@@ -155,6 +157,9 @@ export default function App() {
   const [isLevelingUp, setIsLevelingUp] = useState(false);
   const [celebrateBond, setCelebrateBond] = useState(false);
   const prevStageRef = useRef<DragonStage | null>(null);
+  // Evolution reveals: the one being shown, and a waiting one the player put off for now ("Later").
+  const [reveal, setReveal] = useState<RevealView | null>(null);
+  const [revealLater, setRevealLater] = useState<DragonStage | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const settlingSessionRef = useRef<string | null>(null);
   const saveModeRef = useRef<SaveMode>('loading');
@@ -268,6 +273,8 @@ export default function App() {
           // What Ember says about it (dialogue never changes the save).
           let moment = before && after ? momentFor(before, after, intent, now, awayDaysRef.current) : null;
           if (!moment && intent === 'open') moment = openingMoment(result.state, awayDaysRef.current, now);
+          // An evolution is revealed when the player chooses to see it, never in a passing message.
+          if (moment?.context === 'evolution') moment = null;
           const speech = speak(moment, result.state, now);
           // Just saying hello when the app opens doesn't hold: a tap can answer it.
           const greetingOnly = intent === 'open' && !messages.length;
@@ -638,6 +645,20 @@ export default function App() {
 
   // On a phone the tab content sits below the dragon, so bring it into view
   // when the player picks a tab (Home goes back to the top).
+  const openReveal = (stage: DragonStage) => {
+    if (state) setReveal({ stage, replay: stage !== pendingEvolution(state) });
+  };
+
+  // Finishing a first reveal (or closing it any way) marks it seen, in one
+  // transaction, so every tab agrees. A replay changes nothing.
+  const closeReveal = () => {
+    if (reveal && !reveal.replay) {
+      const { stage } = reveal;
+      update(current => seeEvolution(current, stage));
+    }
+    setReveal(null);
+  };
+
   const selectTab = (tab: Tab) => {
     setActiveTab(tab);
     const behavior: ScrollBehavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
@@ -718,6 +739,9 @@ export default function App() {
   // What custom quests can still earn today, shown in the quest list and the quest form.
   const customLeft = customQuestAllowanceLeft(state, new Date(nowMs));
 
+  // An evolution waiting to be seen, offered until the player chooses to look.
+  const pending = pendingEvolution(state);
+
   // The quest being edited, if it still exists (another tab may have deleted it).
   const editingQuest = (editingQuestId !== null && state.quests.find(q => q.id === editingQuestId)) || null;
 
@@ -733,7 +757,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-1">
             <HeaderButton active={activeTab === 'insights'} onClick={() => selectTab('insights')} icon={TrendingUp} label="Insights" />
-            <HeaderButton active={activeTab === 'badges'} onClick={() => selectTab('badges')} icon={Trophy} label="Milestones" />
+            <HeaderButton active={activeTab === 'badges'} onClick={() => selectTab('badges')} icon={Trophy} label="Milestones" news={!!pending} />
             <HeaderButton onClick={() => setShowSettings(true)} icon={Settings} label="Settings" />
           </div>
         </div>
@@ -868,7 +892,9 @@ export default function App() {
 
           {activeTab === 'badges' && (
             <motion.div key="badges" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-              <Badges badges={state.badges} />
+              <Badges badges={state.badges}>
+                <EvolutionJourney dragonName={state.dragonName} stages={stagesReached(state)} pending={pending} reachedOn={state.stageReachedOn} onOpen={openReveal} />
+              </Badges>
             </motion.div>
           )}
         </AnimatePresence>
@@ -961,7 +987,19 @@ export default function App() {
         onConfirm={handleResetProgress} 
       />
 
-      <FeedbackToast speech={feedback.speech} message={feedback.message} celebrate={feedback.celebrate} error={saveError} onDismissError={() => setSaveError(null)} />
+      <FeedbackToast
+        speech={feedback.speech}
+        message={feedback.message}
+        celebrate={feedback.celebrate}
+        error={saveError}
+        onDismissError={() => setSaveError(null)}
+        invite={
+          pending && pending !== revealLater && !reveal ? (
+            <EvolutionInvite dragonName={state.dragonName} onOpen={() => openReveal(pending)} onLater={() => setRevealLater(pending)} />
+          ) : null
+        }
+      />
+      <EvolutionReveal reveal={reveal} dragonName={state.dragonName} reachedOn={state.stageReachedOn} onClose={closeReveal} />
 
       <nav aria-label="Main" className="nav-safe fixed bottom-0 left-0 right-0 bg-surface/80 backdrop-blur-lg border-t border-line z-50 transition-colors">
         <div className="max-w-2xl mx-auto h-[var(--nav-height)] flex items-stretch px-2">
@@ -1015,16 +1053,17 @@ function NavButton({ active, onClick, icon: Icon, label }: { active: boolean, on
   );
 }
 
-function HeaderButton({ active = false, onClick, icon: Icon, label }: { active?: boolean, onClick: () => void, icon: any, label: string }) {
+function HeaderButton({ active = false, onClick, icon: Icon, label, news = false }: { active?: boolean, onClick: () => void, icon: any, label: string, news?: boolean }) {
   return (
     <button
       onClick={onClick}
-      aria-label={label}
+      aria-label={news ? `${label} (something new)` : label}
       title={label}
       aria-current={active ? 'page' : undefined}
-      className={cn("w-11 h-11 rounded-xl flex items-center justify-center transition-colors", active ? "bg-dragon-gold/10 text-dragon-gold" : "text-fg-muted hover:text-fg")}
+      className={cn("relative w-11 h-11 rounded-xl flex items-center justify-center transition-colors", active ? "bg-dragon-gold/10 text-dragon-gold" : "text-fg-muted hover:text-fg")}
     >
       <Icon className="w-6 h-6" />
+      {news && <span aria-hidden="true" data-news className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-dragon-gold ring-2 ring-surface" />}
     </button>
   );
 }
