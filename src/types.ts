@@ -161,4 +161,9 @@ export interface UserState {
   stageSeen?: DragonStage;
   /** The local day (YYYY-MM-DD) each stage was reached, when known (recorded from reveals on). */
   stageReachedOn?: Partial<Record<DragonStage, string>>;
+  /**
+   * Little Expeditions keepsakes: discovery id (see lib/expeditions.ts) to
+   * the local day (YYYY-MM-DD) it was first found. Each is kept once, forever.
+   */
+  discoveries?: Record<string, string>;
 }

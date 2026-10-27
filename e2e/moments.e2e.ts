@@ -105,7 +105,7 @@ test('Rest Together: Ember rests quietly for a little while, then carries on', a
 test('every moment works from the keyboard, and the group is named for screen readers', async ({ page }) => {
   await hatch(page);
   const group = page.getByRole('group', { name: 'Just for fun with Ember' });
-  await expect(group.getByRole('button')).toHaveCount(3);
+  await expect(group.getByRole('button')).toHaveCount(4); // Boop, Play, Rest together, Explore
   await moment(page, 'Boop').focus();
   await page.keyboard.press('Enter');
   await expect(line(page)).toBeVisible();
