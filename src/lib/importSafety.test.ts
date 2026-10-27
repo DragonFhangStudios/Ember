@@ -43,9 +43,10 @@ describe('importing a hostile save', () => {
   // Found by the privacy audit: the per-quest reward ledger was rebuilt by
   // assigning keys one at a time, so a crafted "__proto__" key replaced that
   // object's prototype. Such a key is now kept as an ordinary entry instead.
-  it('rebuilds the per-quest reward ledger as plain data, ignoring "__proto__"', () => {
+  it('rebuilds the per-quest reward ledger as plain data, keeping "__proto__" as an ordinary key', () => {
     const state = migrateState(hostile(), now);
     expect(isPlain(state.daily.questRewards)).toBe(true);
+    expect(Object.keys(state.daily.questRewards)).toEqual(['__proto__']);
     expect(state.daily.questRewards.q1).toBeUndefined();
   });
 });
