@@ -14,10 +14,11 @@ import { editSave, expect, goToTab, openApp, readSave, test, waitForApp } from '
 //   reload does need it, as there's no service worker);
 // - an imported save can't run script or load outside resources, its text is
 //   shown as text, and it can't pollute JavaScript prototypes;
-// - every outbound link is https, to a vetted publisher, opens in a new tab
-//   with noopener and noreferrer, and carries no player data.
+// - every outbound link is https, to an allowlisted publisher domain, opens in
+//   a new tab with noopener and noreferrer, and carries no player data.
 // What they don't prove: anything about other browsers, browser extensions,
-// the hosting provider, the device, or screens these tests don't visit.
+// the hosting provider, the device, or screens these tests don't visit; or
+// that the linked pages themselves are family-friendly (not yet reviewed).
 
 const MARKERS = {
   note: 'SYNTHETIC-NOTE-q7v2 felt anxious before class',
@@ -161,14 +162,16 @@ test('an imported save cannot run script, load outside resources or pollute prot
   expect(outside, 'nothing was fetched from outside').toEqual([]);
 });
 
-test('every outbound link is a vetted https source that opens safely and carries no player data', async ({ page }) => {
-  const vetted = new Set(['nationalzoo.si.edu', 'www.nationalzoo.si.edu', 'www.montereybayaquarium.org', 'animaldiversity.org', 'www.nhm.ac.uk', 'www.kew.org']);
+test('every outbound link is https to an allowlisted publisher domain, opens safely and carries no player data', async ({ page }) => {
+  // An allowlist of publisher domains, not a review of the pages: the linked
+  // pages haven't yet been checked one by one as family-friendly.
+  const allowlisted = new Set(['nationalzoo.si.edu', 'www.nationalzoo.si.edu', 'www.montereybayaquarium.org', 'animaldiversity.org', 'www.nhm.ac.uk', 'www.kew.org']);
   // The data: every real fact's source.
   for (const fact of FACTS) {
     if (fact.kind !== 'real') continue;
     const url = new URL(fact.source.url);
     expect(url.protocol, fact.id).toBe('https:');
-    expect(vetted.has(url.hostname), `${fact.id} links to ${url.hostname}`).toBe(true);
+    expect(allowlisted.has(url.hostname), `${fact.id} links to ${url.hostname}`).toBe(true);
     expect(url.search + url.hash, `${fact.id} has no query or fragment`).toBe('');
   }
 
@@ -183,7 +186,7 @@ test('every outbound link is a vetted https source that opens safely and carries
   for (const link of await links.all()) {
     const href = (await link.getAttribute('href'))!;
     expect(href.startsWith('https://'), href).toBe(true);
-    expect(vetted.has(new URL(href).hostname), href).toBe(true);
+    expect(allowlisted.has(new URL(href).hostname), href).toBe(true);
     expect(href).not.toContain(MARKERS.name);
     await expect(link).toHaveAttribute('target', '_blank');
     const rel = (await link.getAttribute('rel')) ?? '';
