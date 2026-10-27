@@ -54,6 +54,10 @@ import { QuestOptions, QuestOptionsView } from './components/QuestOptions';
 import { DailyDragonFact } from './components/DailyDragonFact';
 import { factForDay } from './lib/dragonFacts/daily';
 import { BondingActions } from './components/BondingActions';
+import { DragonMoments } from './components/DragonMoments';
+import { Expeditions } from './components/Expeditions';
+import { DiscoveryId, recordDiscovery } from './lib/expeditions';
+import { MomentKind, REST_MS, createMoments } from './lib/moments';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
 import { SettingsSheet } from './components/SettingsSheet';
@@ -142,6 +146,11 @@ export default function App() {
   const [backupCount, setBackupCount] = useState(0);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [isPetted, setIsPetted] = useState(false);
+  // Dragon Moments (Boop, Play, Rest Together): never saved, never rewarded.
+  const momentsRef = useRef(createMoments());
+  const [isResting, setIsResting] = useState(false);
+  const [showExpeditions, setShowExpeditions] = useState(false);
+  const restTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Ember's personality (#18): what he says, how he reacts, and context for both.
@@ -704,6 +713,36 @@ export default function App() {
     showFeedback(null, speak({ context }, state, new Date(now)), false, false);
   };
 
+  // A Dragon Moment: Ember reacts and says something. Nothing is saved or earned.
+  const handleMoment = (kind: MomentKind) => {
+    if (!state) return;
+    const now = Date.now();
+    cancelEasterEgg();
+    const spoken = speak({ context: momentsRef.current.contextFor(kind, now, Math.random()) }, state, new Date(now));
+    if (kind === 'rest') {
+      setIsResting(true);
+      if (restTimeoutRef.current) clearTimeout(restTimeoutRef.current);
+      restTimeoutRef.current = setTimeout(() => setIsResting(false), REST_MS);
+    }
+    // A quest, check-in or other wellness message keeps its time: Ember still
+    // reacts, and the words wait for another tap.
+    if (now < momentShowingUntilRef.current) {
+      if (spoken) {
+        setReaction({ expression: spoken.expression, key: now });
+        if (reactionTimeoutRef.current) clearTimeout(reactionTimeoutRef.current);
+        reactionTimeoutRef.current = setTimeout(() => setReaction(null), REACTION_MS);
+      }
+      return;
+    }
+    showFeedback(null, spoken, false, false);
+  };
+
+  // Little Expeditions: a new keepsake is kept once, in one transaction (so two
+  // tabs can't add it twice). Nothing else changes: no rewards, no active day.
+  const handleFind = (discovery: DiscoveryId) => {
+    update(current => recordDiscovery(current, discovery, new Date()));
+  };
+
   const handleCheckInComplete = (energy: number, mood: number, note: string) => {
     runAction((current, now) => logCheckIn(current, energy, mood, now, note), 'checkIn');
   };
@@ -784,6 +823,7 @@ export default function App() {
             isMeditating={isFocusActive}
             isPetted={isPetted}
             isLevelingUp={isLevelingUp}
+            isResting={isResting && !state.isNapping}
             // Hidden for the alpha: equipped items stay saved, but placeholder art isn't drawn on Ember.
             equipped={wardrobeEnabled() ? state.equipped : {}}
           />
@@ -796,6 +836,8 @@ export default function App() {
             stage={state.stage}
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
+
+          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} />
 
           {state.isNapping && (
             <motion.div 
@@ -1002,6 +1044,7 @@ export default function App() {
           ) : null
         }
       />
+      <Expeditions open={showExpeditions} onClose={() => setShowExpeditions(false)} state={state} onFind={handleFind} />
       <EvolutionReveal
         reveal={reveal}
         dragonName={state.dragonName}
