@@ -1,6 +1,7 @@
 import { DragonStage, DailyRewards, Quest, QuestReward, QuestType, SymptomLog, UserState } from '../types';
 import { themePreferenceOf } from './theme';
 import { INITIAL_QUESTS, BADGES } from '../constants';
+import { DISCOVERIES } from './expeditions';
 import { sanitizeFocusSession } from './focusTimer';
 import {
   LEGACY_BOND_KEY,
@@ -291,6 +292,7 @@ export function createInitialState(now: Date): UserState {
     theme: 'system',
     stageSeen: DragonStage.EGG,
     stageReachedOn: {},
+    discoveries: {},
   };
 }
 
@@ -508,7 +510,18 @@ export function migrateState(raw: unknown, now: Date): UserState {
     // has seen everything it reached, so nothing old is announced.
     stageSeen: stageSeenOf(saved.stageSeen, stage),
     stageReachedOn: stageReachedOnOf(saved.stageReachedOn),
+    // Little Expeditions keepsakes: known ones with a real date, nothing else.
+    discoveries: discoveriesOf(saved.discoveries),
   };
+}
+
+function discoveriesOf(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!value || typeof value !== 'object') return out;
+  for (const [id, day] of Object.entries(value as Record<string, unknown>)) {
+    if (Object.prototype.hasOwnProperty.call(DISCOVERIES, id) && isCalendarDay(day)) out[id] = day;
+  }
+  return out;
 }
 
 const isStage = (value: unknown): value is DragonStage => STAGE_ORDER.includes(value as DragonStage);

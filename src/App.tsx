@@ -55,6 +55,8 @@ import { DailyDragonFact } from './components/DailyDragonFact';
 import { factForDay } from './lib/dragonFacts/daily';
 import { BondingActions } from './components/BondingActions';
 import { DragonMoments } from './components/DragonMoments';
+import { Expeditions } from './components/Expeditions';
+import { DiscoveryId, recordDiscovery } from './lib/expeditions';
 import { MomentKind, REST_MS, createMoments } from './lib/moments';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
@@ -147,6 +149,7 @@ export default function App() {
   // Dragon Moments (Boop, Play, Rest Together): never saved, never rewarded.
   const momentsRef = useRef(createMoments());
   const [isResting, setIsResting] = useState(false);
+  const [showExpeditions, setShowExpeditions] = useState(false);
   const restTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -734,6 +737,12 @@ export default function App() {
     showFeedback(null, spoken, false, false);
   };
 
+  // Little Expeditions: a new keepsake is kept once, in one transaction (so two
+  // tabs can't add it twice). Nothing else changes: no rewards, no active day.
+  const handleFind = (discovery: DiscoveryId) => {
+    update(current => recordDiscovery(current, discovery, new Date()));
+  };
+
   const handleCheckInComplete = (energy: number, mood: number, note: string) => {
     runAction((current, now) => logCheckIn(current, energy, mood, now, note), 'checkIn');
   };
@@ -828,7 +837,7 @@ export default function App() {
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
 
-          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} />
+          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} />
 
           {state.isNapping && (
             <motion.div 
@@ -1035,6 +1044,7 @@ export default function App() {
           ) : null
         }
       />
+      <Expeditions open={showExpeditions} onClose={() => setShowExpeditions(false)} state={state} onFind={handleFind} />
       <EvolutionReveal
         reveal={reveal}
         dragonName={state.dragonName}
