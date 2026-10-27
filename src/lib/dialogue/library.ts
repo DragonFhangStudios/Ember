@@ -67,6 +67,14 @@ export type DialogueContext =
   | 'idle'
   /** Soft, supportive lines used on a hard day when a context has no gentle line. */
   | 'support'
+  /** Dragon Moments: Boop, Play and Rest Together (see lib/moments.ts). No rewards. */
+  | 'moment.boop'
+  | 'moment.play'
+  | 'moment.rest'
+  /** Hidden: a few quick boops in a row. */
+  | 'moment.sneeze'
+  /** Now and then, instead of the usual Boop or Play line. */
+  | 'moment.surprise'
   /** The DFS founder Easter egg (rare; see tapContext in select.ts). */
   | 'founder'
   | 'founder.caught';
@@ -270,6 +278,50 @@ export const LIBRARY: Record<DialogueContext, Line[]> = {
     { id: 'egg-idle-tap', text: '*tap tap* …*tap*', expression: 'curiosity', stages: egg, gentle: true },
     { id: 'egg-idle-pretend', text: "*the egg wobbles, then pretends it didn't*", expression: 'mischief', stages: egg },
     { id: 'egg-idle-smile', text: '*the egg glows a little, like a smile*', expression: 'affection', stages: egg, gentle: true },
+  ],
+
+  // 11. Dragon Moments (Boop, Play, Rest Together). Playful or calm, never a
+  // chore: nothing is earned, nothing is owed.
+  'moment.boop': [
+    { id: 'boop-egg-answer', text: '*a tiny tap answers from inside the shell*', expression: 'surprise', stages: egg, gentle: true },
+    { id: 'boop-egg-bump', text: '*the egg wobbles, then bumps back, very gently*', expression: 'mischief', stages: egg, gentle: true },
+    { id: 'boop-egg-glow', text: '*the shell glows right where you booped it*', expression: 'affection', stages: egg, gentle: true },
+    { id: 'boop-snoot', text: 'Boop! My snoot! *wiggles nose* Again?', expression: 'mischief', gentle: true },
+    { id: 'boop-cross-eyed', text: '*goes cross-eyed looking at the boop* …Hi.', expression: 'curiosity', gentle: true },
+    { id: 'boop-button', text: "You found the boop button. It's my nose. Everybody knows that.", expression: 'mischief' },
+    { id: 'boop-tip-over', text: '*tips over from the boop, then pops right back up* I meant to do that.', expression: 'surprise', stages: [HATCHLING], gentle: true },
+    { id: 'boop-puff', text: '*snorts a warm little puff of air* Boop received.', expression: 'affection', stages: [FLEDGLING, DRAKE], gentle: true },
+    { id: 'boop-dignified', text: 'Ancient dragons are very dignified. *boops you back anyway*', expression: 'mischief', stages: [ANCIENT], gentle: true },
+  ],
+  'moment.play': [
+    { id: 'play-egg-roll', text: '*the egg rolls a tiny bit left, then right. A game!*', expression: 'celebration', stages: egg, gentle: true },
+    { id: 'play-egg-dance', text: '*a flurry of tiny taps, like someone dancing in there*', expression: 'celebration', stages: egg, gentle: true },
+    { id: 'play-sunbeam', text: '*pounces on a sunbeam and misses completely* Got it!', expression: 'mischief', stages: [HATCHLING], gentle: true },
+    { id: 'play-tail', text: '*chases own tail in a wobbly circle* It keeps getting away!', expression: 'celebration', stages: [HATCHLING, FLEDGLING], gentle: true },
+    { id: 'play-hop', text: 'Watch! *flaps tiny wings and hops three whole inches* Flying!', expression: 'celebration', stages: [FLEDGLING], gentle: true },
+    { id: 'play-zoom', text: '*zooms one lap around the room* Your turn! Okay, you can just watch.', expression: 'mischief', stages: [DRAKE, ANCIENT] },
+    { id: 'play-glide', text: '*glides in a slow, happy circle above you*', expression: 'affection', stages: [DRAKE, ANCIENT], gentle: true },
+    { id: 'play-heart-flame', text: '*breathes a tiny, careful flame shaped like a heart*', expression: 'affection', stages: [ANCIENT], gentle: true },
+    { id: 'play-tag', text: "Tag! You're it. *stays perfectly still so you can win*", expression: 'mischief', gentle: true },
+  ],
+  'moment.rest': [
+    { id: 'rest-egg-settle', text: '*the egg settles into the nest with a soft, slow glow*', expression: 'reassurance', stages: egg, gentle: true },
+    { id: 'rest-egg-pulse', text: '*a slow, sleepy pulse of warmth*', expression: 'sleepiness', stages: egg, gentle: true },
+    { id: 'rest-favorite-spot', text: '*curls up right next to you* This is my favorite spot.', expression: 'affection', gentle: true },
+    { id: 'rest-just-be', text: '*breathes slow and warm* We can just be here for a bit.', expression: 'reassurance', gentle: true },
+    { id: 'rest-tail-blanket', text: '*tucks nose under tail like a tiny blanket*', expression: 'sleepiness', gentle: true },
+    { id: 'rest-just-us', text: 'No quests, no timers. Just us. *happy sigh*', expression: 'reassurance', gentle: true },
+  ],
+  'moment.sneeze': [
+    { id: 'sneeze-egg', text: '*achoo! A tiny puff of sparkles drifts out of the shell*', expression: 'surprise', stages: egg, gentle: true },
+    { id: 'sneeze-sparkles', text: '*ACHOO!* Sparkles everywhere. Too many boops. Worth it.', expression: 'mischief', gentle: true },
+    { id: 'sneeze-unseen', text: "*a small sparkle sneeze* …You didn't see that.", expression: 'mischief', gentle: true },
+  ],
+  'moment.surprise': [
+    { id: 'surprise-egg-hum', text: '*the egg hums a tiny, wobbly tune*', expression: 'affection', stages: egg, gentle: true },
+    { id: 'surprise-nice-day', text: "I've decided this is a nice day. *nods very officially*", expression: 'affection', gentle: true },
+    { id: 'surprise-count', text: 'I can count to seven. One, two, many. Close enough.', expression: 'mischief', gentle: true },
+    { id: 'surprise-crumb', text: '*finds a crumb under a cushion and presents it to you like treasure*', expression: 'celebration', gentle: true },
   ],
 
   support: [

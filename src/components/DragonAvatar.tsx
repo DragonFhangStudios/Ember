@@ -65,6 +65,8 @@ interface DragonAvatarProps {
   isMeditating?: boolean;
   isPetted?: boolean;
   isLevelingUp?: boolean;
+  /** Rest Together: a slow, quiet breath and a soft glow for a little while. */
+  isResting?: boolean;
   className?: string;
   equipped?: {
     hat?: string;
@@ -73,7 +75,7 @@ interface DragonAvatarProps {
   };
 }
 
-export function DragonAvatar({ stage, name, onTalk, reaction = null, antic = null, isNapping, isMeditating, isPetted, isLevelingUp, className, equipped }: DragonAvatarProps) {
+export function DragonAvatar({ stage, name, onTalk, reaction = null, antic = null, isNapping, isMeditating, isPetted, isLevelingUp, isResting, className, equipped }: DragonAvatarProps) {
   const stageData = DRAGON_STAGES_DATA[stage];
   const isEgg = stage === DragonStage.EGG;
   // Idle loops (sparkles, breathing, shimmer) stop when the player prefers reduced motion.
@@ -170,20 +172,27 @@ export function DragonAvatar({ stage, name, onTalk, reaction = null, antic = nul
         </AnimatePresence>
 
         <motion.div
+          data-resting={isResting || undefined}
           animate={
             isNapping
               ? { scale: 0.95, y: 5, rotate: 0 }
               : reduceMotion
                 ? { scale: 1, y: 0, rotate: 0 }
-                : { scale: [1, 1.02, 1], y: [0, -10, 0], rotate: isEgg ? [-1, 1, -1] : [-2, 2, -2] }
+                : isResting
+                  ? { scale: [1, 1.015, 1], y: 4, rotate: 0 }
+                  : { scale: [1, 1.02, 1], y: [0, -10, 0], rotate: isEgg ? [-1, 1, -1] : [-2, 2, -2] }
           }
           transition={{
-            duration: isNapping ? 3 : 4,
+            duration: isNapping ? 3 : isResting ? 6 : 4,
             repeat: isNapping || reduceMotion ? 0 : Infinity,
             ease: "easeInOut"
           }}
           className={cn("relative z-10 transition-all duration-500", isPetted && "animate-heartbeat")}
         >
+          {/* Rest Together: a warm, still glow (it doesn't move, so it suits reduced motion too). */}
+          {isResting && (
+            <div aria-hidden="true" className="absolute -inset-3 rounded-full bg-dragon-gold/15 blur-xl -z-10" />
+          )}
           {/* Glow effect when petted */}
           {isPetted && (
             <motion.div
