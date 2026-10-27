@@ -77,12 +77,19 @@ test('pressing again and again keeps it fresh: no line twice in a row', async ({
   expect(new Set(seen).size).toBeGreaterThan(1);
 });
 
+/** Three boops in one go (one browser tick), so they always count as quick, however slowly the test runs. */
+async function tripleBoop(page: Page) {
+  await moment(page, 'Boop').evaluate(button => {
+    for (let i = 0; i < 3; i++) (button as HTMLButtonElement).click();
+  });
+}
+
 test('the hidden sparkle sneeze: three quick boops, on the egg and on a hatchling', async ({ page }) => {
   await quiet(page);
-  for (let i = 0; i < 3; i++) await press(page, 'Boop');
+  await tripleBoop(page);
   await expect(line(page)).toHaveAttribute('data-line', 'sneeze-egg');
   await hatch(page);
-  for (let i = 0; i < 3; i++) await press(page, 'Boop');
+  await tripleBoop(page);
   await expect.poll(async () => ids('moment.sneeze', false).includes((await line(page).getAttribute('data-line'))!)).toBe(true);
 });
 
