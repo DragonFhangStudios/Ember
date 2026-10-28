@@ -56,8 +56,11 @@ import { factForDay } from './lib/dragonFacts/daily';
 import { BondingActions } from './components/BondingActions';
 import { DragonMoments } from './components/DragonMoments';
 import { Expeditions } from './components/Expeditions';
+import { PatternChallenge } from './components/PatternChallenge';
 import { DiscoveryId, recordDiscovery } from './lib/expeditions';
 import { MomentKind, REST_MS, createMoments } from './lib/moments';
+import { createPatternChallenge } from './lib/patternChallenge';
+import { randomFor } from './lib/seededRandom';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
 import { SettingsSheet } from './components/SettingsSheet';
@@ -150,6 +153,9 @@ export default function App() {
   const momentsRef = useRef(createMoments());
   const [isResting, setIsResting] = useState(false);
   const [showExpeditions, setShowExpeditions] = useState(false);
+  // Pattern Challenge: one game per page session, kept while the dialog is closed. Never saved.
+  const [patternChallenge] = useState(() => createPatternChallenge({ random: randomFor('__emberPatternSeed') }));
+  const [showPatternChallenge, setShowPatternChallenge] = useState(false);
   const restTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -837,7 +843,7 @@ export default function App() {
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
 
-          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} />
+          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} onPatternChallenge={() => setShowPatternChallenge(true)} />
 
           {state.isNapping && (
             <motion.div 
@@ -1045,6 +1051,16 @@ export default function App() {
         }
       />
       <Expeditions open={showExpeditions} onClose={() => setShowExpeditions(false)} state={state} onFind={handleFind} />
+      <PatternChallenge
+        open={showPatternChallenge}
+        onClose={() => {
+          patternChallenge.pause();
+          setShowPatternChallenge(false);
+        }}
+        challenge={patternChallenge}
+        dragonName={state.dragonName}
+        stage={state.stage}
+      />
       <EvolutionReveal
         reveal={reveal}
         dragonName={state.dragonName}
