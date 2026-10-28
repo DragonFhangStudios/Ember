@@ -4,6 +4,7 @@ import { Check, Cloud, Flame, Heart, Leaf, Moon, Sun, X } from 'lucide-react';
 import { DragonStage } from '../types';
 import { MemoryMatchGame, PAIRS, Round, SYMBOLS, SymbolId, isFaceUp, pairsFound } from '../lib/memoryMatch';
 import { cn } from '../lib/utils';
+import { usePrefersReducedMotion } from '../lib/useMediaQuery';
 import { Celebration } from './Celebration';
 import { Dialog } from './Dialog';
 
@@ -64,6 +65,7 @@ function describe(before: Round, after: Round): string | null {
 
 function Board({ game, dragonName, stage, onClose }: { game: MemoryMatchGame; dragonName: string; stage: DragonStage; onClose: () => void }) {
   const round = useSyncExternalStore(game.subscribe, game.round);
+  const reduceMotion = usePrefersReducedMotion();
   const [message, setMessage] = useState('');
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const doneRef = useRef<HTMLHeadingElement>(null);
@@ -140,11 +142,11 @@ function Board({ game, dragonName, stage, onClose }: { game: MemoryMatchGame; dr
                   card.matched && 'border-dragon-gold bg-dragon-gold/15',
                 )}
               >
-                {/* Turning over: a quick, small turn (none with reduced motion). The symbol is only in the page once it's face up. */}
+                {/* Turning over: a quick, small turn. With reduced motion it never starts turned, so not even a frame is edge-on. The symbol is only in the page once it's face up. */}
                 <motion.span
                   key={up ? 'up' : 'down'}
                   aria-hidden="true"
-                  initial={{ rotateY: 90 }}
+                  initial={reduceMotion ? false : { rotateY: 90 }}
                   animate={{ rotateY: 0 }}
                   transition={{ duration: 0.18 }}
                   className="flex h-full w-full items-center justify-center"
