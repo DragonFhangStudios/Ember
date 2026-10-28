@@ -56,8 +56,10 @@ import { factForDay } from './lib/dragonFacts/daily';
 import { BondingActions } from './components/BondingActions';
 import { DragonMoments } from './components/DragonMoments';
 import { Expeditions } from './components/Expeditions';
+import { MemoryMatch } from './components/MemoryMatch';
 import { DiscoveryId, recordDiscovery } from './lib/expeditions';
 import { MomentKind, REST_MS, createMoments } from './lib/moments';
+import { createMemoryMatch, gameRandom } from './lib/memoryMatch';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
 import { RecoveryNotice, SaveStatusBanner } from './components/SaveStatusBanner';
 import { SettingsSheet } from './components/SettingsSheet';
@@ -150,6 +152,9 @@ export default function App() {
   const momentsRef = useRef(createMoments());
   const [isResting, setIsResting] = useState(false);
   const [showExpeditions, setShowExpeditions] = useState(false);
+  // Memory Match: one round per page session, kept while the dialog is closed. Never saved.
+  const [memoryMatch] = useState(() => createMemoryMatch({ random: gameRandom() }));
+  const [showMemoryMatch, setShowMemoryMatch] = useState(false);
   const restTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -837,7 +842,7 @@ export default function App() {
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
 
-          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} />
+          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} onMemoryMatch={() => setShowMemoryMatch(true)} />
 
           {state.isNapping && (
             <motion.div 
@@ -1045,6 +1050,16 @@ export default function App() {
         }
       />
       <Expeditions open={showExpeditions} onClose={() => setShowExpeditions(false)} state={state} onFind={handleFind} />
+      <MemoryMatch
+        open={showMemoryMatch}
+        onClose={() => {
+          memoryMatch.pause();
+          setShowMemoryMatch(false);
+        }}
+        game={memoryMatch}
+        dragonName={state.dragonName}
+        stage={state.stage}
+      />
       <EvolutionReveal
         reveal={reveal}
         dragonName={state.dragonName}
