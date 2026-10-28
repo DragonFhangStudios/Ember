@@ -35,7 +35,7 @@ for (const [width, scheme] of [[320, 'light'], [320, 'dark'], [1280, 'light']] a
 
     // Every button in the group: comfortable to tap, label fully shown.
     const buttons = group(page).getByRole('button');
-    await expect(buttons).toHaveText(['Boop', 'Play', 'Rest together', 'Explore', 'Pattern Challenge', 'Trick Time']);
+    await expect(buttons).toHaveText(['Boop', 'Play', 'Rest together', 'Explore', 'Memory Match', 'Pattern Challenge', 'Trick Time']);
     await group(page).scrollIntoViewIfNeeded();
     for (const button of await buttons.all()) {
       const box = (await button.boundingBox())!;

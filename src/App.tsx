@@ -56,10 +56,12 @@ import { factForDay } from './lib/dragonFacts/daily';
 import { BondingActions } from './components/BondingActions';
 import { DragonMoments } from './components/DragonMoments';
 import { Expeditions } from './components/Expeditions';
+import { MemoryMatch } from './components/MemoryMatch';
 import { PatternChallenge } from './components/PatternChallenge';
 import { TrickTime } from './components/TrickTime';
 import { DiscoveryId, recordDiscovery } from './lib/expeditions';
 import { MomentKind, REST_MS, createMoments } from './lib/moments';
+import { createMemoryMatch, gameRandom } from './lib/memoryMatch';
 import { createPatternChallenge } from './lib/patternChallenge';
 import { randomFor } from './lib/seededRandom';
 import { ResetConfirmationModal } from './components/ResetConfirmationModal';
@@ -154,6 +156,9 @@ export default function App() {
   const momentsRef = useRef(createMoments());
   const [isResting, setIsResting] = useState(false);
   const [showExpeditions, setShowExpeditions] = useState(false);
+  // Memory Match: one round per page session, kept while the dialog is closed. Never saved.
+  const [memoryMatch] = useState(() => createMemoryMatch({ random: gameRandom() }));
+  const [showMemoryMatch, setShowMemoryMatch] = useState(false);
   // Pattern Challenge: one game per page session, kept while the dialog is closed. Never saved.
   const [patternChallenge] = useState(() => createPatternChallenge({ random: randomFor('__emberPatternSeed') }));
   const [showPatternChallenge, setShowPatternChallenge] = useState(false);
@@ -846,7 +851,7 @@ export default function App() {
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
 
-          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} onPatternChallenge={() => setShowPatternChallenge(true)} onTrickTime={() => setShowTrickTime(true)} />
+          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} onMemoryMatch={() => setShowMemoryMatch(true)} onPatternChallenge={() => setShowPatternChallenge(true)} onTrickTime={() => setShowTrickTime(true)} />
 
           {state.isNapping && (
             <motion.div 
@@ -1054,6 +1059,16 @@ export default function App() {
         }
       />
       <Expeditions open={showExpeditions} onClose={() => setShowExpeditions(false)} state={state} onFind={handleFind} />
+      <MemoryMatch
+        open={showMemoryMatch}
+        onClose={() => {
+          memoryMatch.pause();
+          setShowMemoryMatch(false);
+        }}
+        game={memoryMatch}
+        dragonName={state.dragonName}
+        stage={state.stage}
+      />
       <PatternChallenge
         open={showPatternChallenge}
         onClose={() => {
