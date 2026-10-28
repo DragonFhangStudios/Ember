@@ -179,7 +179,21 @@ export function questRewardAt(quest: Quest, progress: number): QuestReward {
  * again).
  */
 function questPaid(daily: DailyRewards, quest: Quest): QuestReward {
-  return maxReward(daily.questRewards[quest.id] ?? NO_REWARD, questRewardAt(quest, quest.progress));
+  return maxReward(ledgerEntry(daily.questRewards, quest.id), questRewardAt(quest, quest.progress));
+}
+
+// Quest ids and ledger keys come from the save, so they're untrusted: a key
+// like "__proto__" must be an ordinary entry, never the object's prototype
+// (privacy audit). Read only the ledger's own entries; write with
+// defineProperty, which always makes an own entry.
+
+/** A quest's entry in the reward ledger, or nothing yet. */
+function ledgerEntry(ledger: Record<string, QuestReward>, id: string): QuestReward {
+  return Object.prototype.hasOwnProperty.call(ledger, id) ? ledger[id] : NO_REWARD;
+}
+
+function setLedgerEntry(ledger: Record<string, QuestReward>, id: string, reward: QuestReward) {
+  Object.defineProperty(ledger, id, { value: reward, enumerable: true, writable: true, configurable: true });
 }
 
 /** Adds rewards. `growth` goes to this device's Bond entry; it never changes the stage. */
@@ -305,7 +319,7 @@ function sanitizeQuestRewards(value: unknown): Record<string, QuestReward> {
   for (const [id, entry] of Object.entries(value as Record<string, unknown>)) {
     if (!entry || typeof entry !== 'object') continue;
     const e = entry as Record<string, unknown>;
-    out[id] = { energy: Math.max(0, num(e.energy, 0)), growth: Math.max(0, num(e.growth, 0)), scales: Math.max(0, num(e.scales, 0)) };
+    setLedgerEntry(out, id, { energy: Math.max(0, num(e.energy, 0)), growth: Math.max(0, num(e.growth, 0)), scales: Math.max(0, num(e.scales, 0)) });
   }
   return out;
 }
@@ -398,7 +412,7 @@ export function migrateState(raw: unknown, now: Date): UserState {
     // today counts toward the new cap (it's kept even if it's over).
     for (const quest of quests) {
       if (quest.progress > 0) {
-        daily.questRewards[quest.id] = maxReward(daily.questRewards[quest.id] ?? NO_REWARD, questRewardAt(quest, quest.progress));
+        setLedgerEntry(daily.questRewards, quest.id, maxReward(ledgerEntry(daily.questRewards, quest.id), questRewardAt(quest, quest.progress)));
       }
     }
     daily.customQuestEnergy = roundGrowth(
