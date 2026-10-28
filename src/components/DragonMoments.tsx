@@ -1,4 +1,4 @@
-import { Compass, Hand, Moon, Puzzle, Sparkles } from 'lucide-react';
+import { Compass, Hand, Moon, PartyPopper, Puzzle, Sparkles } from 'lucide-react';
 import { MomentKind } from '../lib/moments';
 
 const ACTIONS: { kind: MomentKind; label: string; icon: typeof Hand }[] = [
@@ -9,10 +9,11 @@ const ACTIONS: { kind: MomentKind; label: string; icon: typeof Hand }[] = [
 
 /**
  * Dragon Moments: little things to do with Ember, any time, as often as you
- * like, plus the ways into Little Expeditions and Pattern Challenge. Just
- * for fun: they earn nothing (an expedition keeps the keepsake it finds, nothing else).
+ * like, plus the ways into Little Expeditions, Pattern Challenge and Trick
+ * Time. Just for fun: they earn nothing (an expedition keeps the keepsake it
+ * finds, nothing else).
  */
-export function DragonMoments({ dragonName, onMoment, onExplore, onPatternChallenge }: { dragonName: string; onMoment: (kind: MomentKind) => void; onExplore: () => void; onPatternChallenge: () => void }) {
+export function DragonMoments({ dragonName, onMoment, onExplore, onPatternChallenge, onTrickTime }: { dragonName: string; onMoment: (kind: MomentKind) => void; onExplore: () => void; onPatternChallenge: () => void; onTrickTime: () => void }) {
   return (
     <div role="group" aria-labelledby="moments-label" className="mt-5 mb-16 flex flex-col items-center gap-2">
       <p id="moments-label" className="text-xs font-bold uppercase tracking-widest text-fg-muted">
@@ -46,6 +47,14 @@ export function DragonMoments({ dragonName, onMoment, onExplore, onPatternChalle
         >
           <Puzzle aria-hidden="true" className="w-4 h-4 text-gold-fg" />
           Pattern Challenge
+        </button>
+        <button
+          type="button"
+          onClick={onTrickTime}
+          className="min-h-11 flex items-center gap-2 px-4 py-2 rounded-2xl text-sm font-bold bg-surface-muted text-fg border border-line hover:border-dragon-gold/60 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-dragon-gold/60 transition-colors"
+        >
+          <PartyPopper aria-hidden="true" className="w-4 h-4 text-gold-fg" />
+          Trick Time
         </button>
       </div>
     </div>

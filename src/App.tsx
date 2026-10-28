@@ -57,6 +57,7 @@ import { BondingActions } from './components/BondingActions';
 import { DragonMoments } from './components/DragonMoments';
 import { Expeditions } from './components/Expeditions';
 import { PatternChallenge } from './components/PatternChallenge';
+import { TrickTime } from './components/TrickTime';
 import { DiscoveryId, recordDiscovery } from './lib/expeditions';
 import { MomentKind, REST_MS, createMoments } from './lib/moments';
 import { createPatternChallenge } from './lib/patternChallenge';
@@ -156,6 +157,8 @@ export default function App() {
   // Pattern Challenge: one game per page session, kept while the dialog is closed. Never saved.
   const [patternChallenge] = useState(() => createPatternChallenge({ random: randomFor('__emberPatternSeed') }));
   const [showPatternChallenge, setShowPatternChallenge] = useState(false);
+  // Trick Time: starts fresh each time it opens. Never saved.
+  const [showTrickTime, setShowTrickTime] = useState(false);
   const restTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [feedback, setFeedback] = useState<{ message: string | null; speech: Spoken | null; celebrate?: boolean }>({ message: null, speech: null });
   const feedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -843,7 +846,7 @@ export default function App() {
             feedsLeft={DAILY_LIMITS.feeds - dailyFor(state, new Date()).feeds}
           />
 
-          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} onPatternChallenge={() => setShowPatternChallenge(true)} />
+          <DragonMoments dragonName={state.dragonName} onMoment={handleMoment} onExplore={() => setShowExpeditions(true)} onPatternChallenge={() => setShowPatternChallenge(true)} onTrickTime={() => setShowTrickTime(true)} />
 
           {state.isNapping && (
             <motion.div 
@@ -1061,6 +1064,7 @@ export default function App() {
         dragonName={state.dragonName}
         stage={state.stage}
       />
+      <TrickTime open={showTrickTime} onClose={() => setShowTrickTime(false)} dragonName={state.dragonName} stage={state.stage} />
       <EvolutionReveal
         reveal={reveal}
         dragonName={state.dragonName}
